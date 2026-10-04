@@ -116,7 +116,7 @@ export default function App() {
       <div className="home-progress"><div className="progress-copy"><span>Progress</span><span>{doneCount} of {visibleLessons(compress).length} lessons</span></div><div className="progress-track" role="progressbar" aria-label="Study progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${progress}%` }} /></div></div>
     </main> : <>
       {!focusMode && <header className="topbar"><Link to="/" className="wordmark">Citi interview prep</Link><nav className={menuOpen && !isLesson && !dayMatch ? 'mobile-nav-open' : ''} aria-label="Main navigation"><Link to="/progress">Progress</Link><Link to="/practice">Practice</Link><Link to="/cheatsheet">Cheat sheet</Link><Link to="/settings">Settings</Link></nav>{!isLesson && !dayMatch && <button className="mobile-menu-button" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>☰ <span className="sr-only">Open site navigation</span></button>}<ThemeToggle dark={dark} onToggle={toggleDark} /></header>}
-      <div className={`page-layout ${focusMode ? 'focus-layout' : ''}`}>
+      <div className={`page-layout ${focusMode ? 'focus-layout' : ''} ${!focusMode && !(isLesson || dayMatch) ? 'no-sidebar' : ''}`}>
         {!focusMode && (isLesson || dayMatch) && <>
           <button className="mobile-menu-button mobile-menu-in-layout" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>☰ Lesson outline</button>
           {menuOpen && <button className="drawer-backdrop" aria-label="Close lesson menu" onClick={() => setMenuOpen(false)} />}
