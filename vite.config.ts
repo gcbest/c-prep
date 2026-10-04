@@ -13,6 +13,9 @@ export default defineConfig({
     {
       enforce: 'pre',
       ...mdx({
+        // Required for <MDXProvider components={mdxComponents}> to resolve custom
+        // components (Bridge, BackendChoice, Reveal, ...) used inside MDX files.
+        providerImportSource: '@mdx-js/react',
         remarkPlugins: [remarkFrontmatter, remarkGfm, remarkCheatSheet, [remarkMdxFrontmatter, { name: 'frontmatter' }]],
         rehypePlugins: [[rehypeShiki, { themes: { light: 'github-light', dark: 'github-dark' }, defaultColor: false }]],
       }),
