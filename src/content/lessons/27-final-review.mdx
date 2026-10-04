@@ -1,0 +1,96 @@
+---
+number: 27
+title: "Final cheat sheet, review of misses, day-of checklist"
+minutes: 30
+day: 3
+---
+
+## Why this matters
+
+The last half hour is best spent on retrieval, not new material. Re-read the one-page sheet, redo what you missed, and remove day-of friction.
+
+## Core idea
+
+1. [Open the cheat sheet](#/cheatsheet) and read it once end to end.
+2. Work through [your Review these list](#/progress): answer each missed question aloud before revealing, then regrade.
+3. Run the seed rapid-fire answers below, speaking each in one or two sentences.
+4. Tick the checklist.
+
+## Example
+
+Day-of checklist:
+
+- [ ] Confirm the interview format and language choice (Java or Python, Angular or not).
+- [ ] Quiet room, charged laptop, working editor and screen share tested.
+- [ ] Restate and clarify the problem before coding.
+- [ ] Think aloud as you work.
+- [ ] Test with an example before saying "done".
+- [ ] Stories and questions to ask within reach.
+
+## Practice
+
+Rapid fire. Say each answer aloud, then reveal.
+
+<Reveal label="equals / hashCode">
+If you override `equals`, override `hashCode` consistently: equal objects must have equal hash codes. Otherwise hash-based collections (`HashMap`, `HashSet`) misbehave. Use the same fields in both and keep them immutable.
+</Reveal>
+
+<Reveal label="Checked vs unchecked exceptions">
+Checked exceptions must be declared or caught and are for recoverable conditions; unchecked (`RuntimeException`) are programming errors or unrecoverable. Spring rolls back transactions on unchecked exceptions by default.
+</Reveal>
+
+<Reveal label="@Transactional self-invocation">
+Spring applies `@Transactional` through a proxy, so a call from one method to another in the same class bypasses the proxy and no transaction starts. Move the method to another bean or restructure.
+</Reveal>
+
+<Reveal label="Singleton bean thread safety">
+Beans are singletons by default and shared across request threads, so they must be stateless or have thread-safe state. Keep per-request data in method variables, not fields.
+</Reveal>
+
+<Reveal label="N+1">
+One query for the parent list plus one per child. Fix with a join fetch, entity graph or batch fetching, and verify by counting SQL statements.
+</Reveal>
+
+<Reveal label="Anti-join and NOT IN with NULLs">
+`NOT IN` against a subquery that returns a `NULL` yields no rows, because the comparison is unknown. Use `NOT EXISTS` or `LEFT JOIN ... WHERE right.id IS NULL`.
+</Reveal>
+
+<Reveal label="OnPush triggers">
+An `OnPush` component re-checks when an input reference changes, an event fires from its template, an `async` pipe emits, a signal it reads changes, or `markForCheck` is called. Mutating an input object in place does not trigger it.
+</Reveal>
+
+<Reveal label="Signals vs RxJS">
+Signals hold synchronous current state with fine-grained change tracking; RxJS models asynchronous streams over time (HTTP, events, debounce, cancellation). Use signals for state, RxJS for streams, and convert between them as needed.
+</Reveal>
+
+<Reveal label="Authorization on the server">
+The client is untrusted: hiding UI is cosmetic. Enforce authentication and authorization on every request on the server, deny by default, check entitlements per resource, and audit.
+</Reveal>
+
+<Reveal label="Micro-frontends">
+Independently deployed front-end pieces composed into one app (module federation, web components). Benefits: team autonomy and independent releases. Costs: shared dependencies, consistency, performance and complexity. Do not adopt it without a real organisational need.
+</Reveal>
+
+<Reveal label="LLM in a bank">
+Keys and model calls stay server-side. Treat output as untrusted (no executing it, escape it). Retrieval is filtered by the caller's entitlements. Log and audit prompts and responses. Keep a human in the loop for decisions.
+</Reveal>
+
+<SayItOut prompt="Pick the topic you feel least sure about and explain it in 60-90 seconds as if teaching a colleague.">
+- A one-line definition in plain words.
+- A small concrete example.
+- The most common mistake or trade-off.
+- How it maps to something you already know in React, TypeScript or FastAPI.
+</SayItOut>
+
+<Collapsible title="Go deeper: if you have spare minutes">
+Rehearse your two-minute introduction and your Why Citi ERT? answer once more, then stop. Rest beats a last cram.
+</Collapsible>
+
+<CheatSheet>
+
+- Read the cheat sheet once, redo your misses.
+- Restate, clarify, think aloud, test with an example.
+- Server-side authorization; stateless singleton beans; no self-invocation with @Transactional.
+- Confirm format and language; keep stories and questions at hand.
+
+</CheatSheet>

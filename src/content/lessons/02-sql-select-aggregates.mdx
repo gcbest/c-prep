@@ -1,0 +1,83 @@
+---
+number: 2
+title: "SQL 1: SELECT, WHERE, aggregates, GROUP BY, HAVING"
+minutes: 25
+day: 1
+---
+
+## Why this matters
+
+SQL is the highest-return skill in this plan. Candidate-reported Citi full-stack screens have included roughly 20 minutes of SQL, and everything later (JPA, N+1, reporting screens) assumes you can reason about rows and groups.
+
+## Core idea
+
+Think in **row grain**: what does one output row represent? Then pick the clauses.
+
+| Clause | Runs | Does |
+|---|---|---|
+| `FROM` / `JOIN` | 1st | builds the working rows |
+| `WHERE` | 2nd | filters **rows** (cannot use aggregates) |
+| `GROUP BY` | 3rd | collapses rows into groups |
+| `HAVING` | 4th | filters **groups** (can use aggregates) |
+| `SELECT` | 5th | computes columns and aliases |
+| `ORDER BY` | 6th | sorts (can use aliases) |
+
+- `COUNT(*)` counts rows; `COUNT(col)` skips `NULL`s; `COUNT(DISTINCT col)` counts unique non-null values.
+- **Conditional aggregation:** `SUM(CASE WHEN severity = 'high' THEN 1 ELSE 0 END)` counts a subset without a second query.
+- **NULL semantics:** `NULL = NULL` is not true. Use `IS NULL`. Aggregates ignore `NULL`; `COALESCE(x, 0)` supplies a default.
+- Every non-aggregated column in `SELECT` must appear in `GROUP BY`.
+
+<Bridge from="TypeScript" breaks="SQL is declarative: you describe the result and the database chooses the steps, and clause order of execution differs from the order you write them.">
+`GROUP BY` plus an aggregate is like `reduce` into a `Map`, and `HAVING` is `filter` over that map's entries. `WHERE` is `filter` before the reduce.
+</Bridge>
+
+## Example
+
+Desks whose accounts made more than three trades above 50, busiest first:
+
+```sql
+SELECT a.desk,
+       COUNT(*)                  AS trades,
+       COUNT(DISTINCT t.symbol)  AS symbols,
+       SUM(t.amount)             AS notional
+FROM trades t
+JOIN accounts a ON a.id = t.account_id
+WHERE t.amount > 50            -- row filter
+GROUP BY a.desk
+HAVING COUNT(*) > 3            -- group filter
+ORDER BY notional DESC;
+```
+
+Oracle and Postgres differ on small things: top-N is `FETCH FIRST n ROWS ONLY` (Oracle 12c+, Postgres) or `LIMIT n` (Postgres/SQLite) or legacy `ROWNUM`; `NVL` is Oracle-only while `COALESCE` is portable.
+
+## Practice
+
+Seven exercises on seeded risk data. Run, read the diff message, and use the hint ladder only when stuck.
+
+<SqlExercise ids={[1, 2, 3, 4, 5, 6, 7]} />
+
+<Practice />
+
+<SayItOut prompt="Explain the difference between WHERE and HAVING, and why COUNT(*) and COUNT(column) can differ.">
+- WHERE filters rows before grouping; HAVING filters groups after aggregation.
+- Aggregates are not allowed in WHERE for that reason.
+- COUNT(*) counts rows; COUNT(column) ignores NULLs; DISTINCT removes duplicates.
+- A small example, such as orders with a NULL total.
+</SayItOut>
+
+<Collapsible>
+- **Execution order** explains most "why can't I use my alias in WHERE" errors.
+- **Indexes:** an index on `trades(account_id)` helps joins and filters; wrapping the column in a function (`WHERE DATE(traded_at) = ...`) usually prevents its use.
+- **Transactions and isolation:** a transaction is all-or-nothing; higher isolation prevents anomalies (dirty, non-repeatable, phantom reads) at a cost in concurrency.
+- Postgres and Oracle default to *read committed*.
+</Collapsible>
+
+<CheatSheet>
+
+- Think row grain first; WHERE filters rows, HAVING filters groups.
+- COUNT(*) counts rows, COUNT(col) skips NULLs, COUNT(DISTINCT col) uniques.
+- Conditional aggregation: SUM(CASE WHEN ... THEN 1 ELSE 0 END).
+- NULL: use IS NULL; aggregates ignore NULL; COALESCE for defaults.
+- Oracle vs Postgres: FETCH FIRST / ROWNUM, NVL vs COALESCE.
+
+</CheatSheet>

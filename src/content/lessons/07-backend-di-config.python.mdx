@@ -1,0 +1,102 @@
+---
+number: 7
+title: "Backend 2: Dependency injection and configuration"
+minutes: 25
+day: 1
+---
+
+## Why this matters
+
+You use `Depends` daily; the interview value is explaining it as dependency injection, covering lifetimes and thread-safety, and testing with overrides. Spring DI questions are a common opener (Spring was reported as about 15 minutes of some Citi screens, candidate-reported), so know the Spring vocabulary too.
+
+## Core idea
+
+- **Depends is request-scoped DI.** FastAPI resolves the dependency graph per request, caches each dependency within that request (`use_cache=True`), and runs the teardown after the `yield`. Spring instead builds long-lived singleton beans at startup.
+- **Per-request session.** A `get_session` generator dependency opens a session, yields it, commits or rolls back, then closes it. Never share one session across requests.
+- **Shared state must be thread-safe.** Anything at module level or cached with `lru_cache` (settings, an HTTP client, an engine) is shared by all requests and, for sync `def` routes, by threadpool threads. Keep it immutable or stateless. This is the equivalent of "Spring singleton beans must be stateless". Per-request data stays in parameters or dependencies. Mutable module globals (counters, caches of user data) are race conditions.
+- **Settings with pydantic-settings.** A `BaseSettings` subclass reads environment variables and `.env`, validates and types them, and fails at startup if a required value is missing. Cache the instance with `lru_cache`. Secrets come from the environment or a secret manager, never from committed files. Use `SecretStr` so they do not print in logs.
+- **Overrides in tests.** `app.dependency_overrides[get_session] = fake` swaps a provider without patching imports; clear it after the test. This replaces Spring's `@MockBean`.
+- **Qualifier / Primary equivalent.** There is no container choosing by type: you pick the provider function explicitly, or select inside a factory dependency based on settings.
+
+<Bridge from="Spring Boot (Java)" breaks="Spring wires by type through a container with singleton beans by default; FastAPI wires by explicit function reference and per request.">
+`@Autowired` constructor ~ `Depends(provider)`. Singleton bean ~ module-level or `lru_cache` object. `@Qualifier` ~ choosing a different provider. `@Profile` + `application-prod.yml` ~ `APP_ENV` plus env vars. `@ConfigurationProperties` ~ `BaseSettings`. `@MockBean` ~ `dependency_overrides`. Mockito ~ `unittest.mock`; JUnit ~ pytest.
+</Bridge>
+
+## Example
+
+```python
+from functools import lru_cache
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="APP_")
+    database_url: str
+    db_password: SecretStr          # APP_DB_PASSWORD from the environment
+    fee: float = 1.5
+
+@lru_cache
+def get_settings() -> Settings:     # one shared, read-only instance
+    return Settings()
+
+def get_session(settings: Settings = Depends(get_settings)):
+    with SessionLocal() as session:  # one per request
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+
+class PricingService:               # stateless: only params and locals
+    def __init__(self, session: Session, settings: Settings):
+        self.session, self.settings = session, settings
+
+    def price(self, notional: Decimal) -> Decimal:
+        return notional * rate() + Decimal(str(self.settings.fee))
+
+def get_pricing(session=Depends(get_session), s=Depends(get_settings)):
+    return PricingService(session, s)
+
+# test
+def test_price(client):
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        database_url="sqlite://", db_password="x", fee=0)
+    try:
+        assert client.post("/price", json={"notional": "100"}).status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+```
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Explain how dependency injection works in FastAPI, how it compares to Spring, and how you handle config, secrets and testing.">
+- Depends resolves a per-request graph, caches within the request, runs yield teardown; session per request.
+- Spring beans are singletons by default and shared across request threads, so keep them stateless; the Python equivalent is shared module-level objects that must be immutable or thread-safe.
+- Constructor injection in Spring (final, testable) maps to passing dependencies explicitly in Python.
+- pydantic-settings with environment variables; secrets via env or secret manager, `SecretStr`.
+- `dependency_overrides` in pytest, like `@MockBean`; `unittest.mock` like Mockito.
+- Spring extras: `@Primary`/`@Qualifier`, auto-configuration, profiles and `application.yml`.
+</SayItOut>
+
+<Collapsible>
+- **Sub-dependencies and `use_cache`:** the same dependency used twice in one request is evaluated once unless `use_cache=False`.
+- **Lifespan events** (`lifespan=` context manager) create app-wide resources such as the engine or HTTP client once, replacing `@PostConstruct`/`@PreDestroy`.
+- **Class-based dependencies:** `Depends(SomeClass)` calls the constructor per request.
+- **Sync dependencies in async routes** run in the threadpool; blocking calls inside `async def` stall the loop.
+- **Spring auto-configuration** has no direct equivalent: Boot creates beans conditionally from the classpath (`@ConditionalOnMissingBean`); in FastAPI you wire explicitly.
+- **Settings per environment:** layered `.env` files or env vars; keep prod secrets out of the image.
+</Collapsible>
+
+<CheatSheet>
+
+- Depends = per-request DI with yield teardown; one session per request.
+- Shared objects (settings, clients, engine) are shared across requests: keep them immutable or stateless.
+- Spring beans are singleton by default and shared across threads: stateless.
+- pydantic-settings for typed config; secrets from the environment; `SecretStr`.
+- `dependency_overrides` for tests (like `@MockBean`).
+- Spring: constructor injection, `@Primary` vs `@Qualifier`, auto-config, profiles.
+
+</CheatSheet>

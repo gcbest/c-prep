@@ -1,0 +1,82 @@
+---
+number: 11
+title: "Angular 2: Services, dependency injection, HTTP"
+minutes: 25
+day: 1
+---
+
+## Why this matters
+
+Services and `HttpClient` are where Angular code touches your backend, so they are the natural follow-up to a component question. Candidate-reported Citi Angular segments were short, so expect "read this service and explain it" more than anything exotic.
+
+## Core idea
+
+A **service** is a plain class marked `@Injectable()`. Angular's **injector** builds it and hands it to whoever asks in their constructor (or via `inject()`).
+
+- **`providedIn: 'root'`:** one app-wide singleton, tree-shakeable. The default for API services.
+- **Component-level `providers: [...]`:** a new instance per component instance (and its children). Use for per-widget state.
+- **Older NgModule `providers`:** module-scoped; lazy-loaded modules get their own instance, a classic source of "why are there two copies" bugs.
+- Injectors form a **hierarchy** (element, then parent elements, then module or root). Lookup walks upward.
+- **`HttpClient`** returns **cold Observables**: nothing is sent until someone subscribes (or `async` pipe does). Type the response with a generic: `http.get<Trade[]>(url)`. Types are compile-time only; no runtime validation.
+- **Interceptors** wrap every request: add an auth header, log, map errors, retry. Older style is a class implementing `HttpInterceptor` registered under `HTTP_INTERCEPTORS`; modern style is a function passed to `provideHttpClient(withInterceptors([...]))`. Requests are immutable, so you `clone` them.
+- **Errors:** `catchError` in the pipe (return a fallback with `of(...)` or rethrow with `throwError`). A global error interceptor handles 401 redirect and generic toasts.
+
+<Bridge from="FastAPI / React" breaks="DI scope is not React Context. Context passes a value down the render tree; Angular DI constructs objects by class token and chooses the instance by which injector provides it. Different providers means different instances.">
+`providedIn: 'root'` is a FastAPI dependency cached as an app singleton; component `providers` is like a dependency created per request. `HttpClient` is `fetch` or axios, but returns a lazy Observable instead of a Promise. An interceptor is axios interceptors or FastAPI middleware.
+</Bridge>
+
+## Example
+
+```ts
+@Injectable({ providedIn: 'root' })
+export class TradeService {
+  private http = inject(HttpClient);   // older style: constructor(private http: HttpClient) {}
+
+  list(desk: string) {
+    return this.http
+      .get<Trade[]>('/api/trades', { params: { desk } })
+      .pipe(catchError(() => of([] as Trade[])));
+  }
+}
+
+// Modern functional interceptor
+export const authInterceptor: HttpInterceptorFn = (req, next) =>
+  next(req.clone({ setHeaders: { Authorization: `Bearer ${inject(AuthService).token()}` } }));
+
+// main.ts
+bootstrapApplication(AppComponent, {
+  providers: [provideHttpClient(withInterceptors([authInterceptor]))],
+});
+```
+
+In the NgModule era you import `HttpClientModule` instead and register a class interceptor with `{ provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true }`.
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Explain how Angular dependency injection works and how you would add an auth token to every HTTP call.">
+- Injectable class, injector supplies instances by token; singleton versus per-component scope.
+- providedIn root versus component providers, and that it is not React Context.
+- HttpClient returns a cold Observable; typed with a generic, no runtime validation.
+- Interceptor clones the request with the header; error interceptor for 401 and logging.
+- Mention both interceptor styles (class versus function).
+</SayItOut>
+
+<Collapsible>
+- `@Optional`, `@Self`, `@SkipSelf` tune where lookup starts or stops.
+- `InjectionToken` injects non-class values such as config; swap implementations in tests via `providers: [{ provide: X, useClass: Fake }]`.
+- Test HTTP with `HttpTestingController`, no real network.
+- Subscribing twice to a cold `http.get` sends two requests; use `shareReplay` or a signal to share.
+- Unsubscribing from an `http` observable cancels the in-flight request.
+</Collapsible>
+
+<CheatSheet>
+
+- `@Injectable({ providedIn: 'root' })` is an app singleton; component `providers` is per instance.
+- DI picks instances by injector hierarchy, not by render tree like Context.
+- `HttpClient` is cold: no subscribe, no request; `get<T>` is compile-time only.
+- Interceptors clone requests (immutable): auth header, error handling.
+- `catchError` plus `of` or `throwError` for error handling.
+
+</CheatSheet>

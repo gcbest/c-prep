@@ -1,0 +1,102 @@
+---
+number: 23
+title: "Delivery: Docker, CI/CD, micro-frontends"
+minutes: 25
+day: 3
+optional: true
+---
+
+## Why this matters
+
+Docker and CI/CD appear in the job description (job-description). You are unlikely to be quizzed on syntax; expect to describe how code safely reaches production and how you roll back.
+
+## Core idea
+
+The pipeline, in order:
+
+1. **PR checks:** lint, type check, unit tests, and review before merge.
+2. **CI build:** reproducible build from a clean checkout; run full tests.
+3. **Multi-stage Docker build:** compile in a fat build image, copy only the output into a slim runtime image (smaller, fewer vulnerabilities, no build tools in production).
+4. **Scans:** dependency and image vulnerability scans, secret scanning, static analysis (SAST); fail on high severity.
+5. **Immutable artifact:** tag by commit SHA, push once to the registry; never rebuild per environment and never overwrite a tag.
+6. **Promotion:** the same artifact moves dev, test, UAT, prod; only configuration differs (injected at deploy, secrets from a vault).
+7. **Smoke tests** after each deploy, then **approvals** for regulated environments (change management, sign-off).
+8. **Rollback:** redeploy the previous artifact; database migrations must be backward compatible so rollback is possible. Blue/green or canary reduce blast radius.
+
+**Micro-frontends** split a UI into independently deployed pieces, justified by team autonomy and release independence. You accept version skew between shell and remotes, shared-dependency duplication, and costlier integration tests.
+
+<Bridge from="React / TypeScript / FastAPI" breaks="Angular and Spring builds are compiled, so the image is built in stages rather than just copying source.">
+It is the same idea as a multi-stage Dockerfile for a Vite app: `npm run build` in one stage, serve `dist/` from nginx in the next.
+</Bridge>
+
+## Example
+
+Angular built then served by nginx:
+
+```text
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build -- --configuration production
+
+FROM nginx:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist/app/browser /usr/share/nginx/html
+EXPOSE 8080
+USER nginx
+```
+
+Spring Boot jar:
+
+```text
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /src
+COPY pom.xml .
+RUN mvn -q dependency:go-offline
+COPY src ./src
+RUN mvn -q package -DskipTests
+
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY --from=build /src/target/app.jar app.jar
+USER 1000
+ENTRYPOINT ["java", "-jar", "app.jar"]
+```
+
+Note the nginx config should send unknown paths to `index.html` so Angular client-side routes work.
+
+## Practice
+
+<Reveal label="Exercise: say what goes wrong">
+
+You rebuild the image separately for UAT and prod from the same branch, and prod gets a different dependency version. Which pipeline principle did you break, and what do you change?
+
+**Answer:** Build once, promote the same immutable artifact (tagged by commit SHA). Pin dependencies with a lockfile (`npm ci`, locked Maven versions). Only configuration varies per environment, injected at deploy time. Add a smoke test and a rollback to the previous SHA.
+
+</Reveal>
+
+<SayItOut prompt="Walk me through how a change gets from a pull request to production safely, and how you roll back.">
+- PR checks, CI build, tests, scans, then one immutable artifact tagged by SHA.
+- Promote the same artifact through environments; config and secrets injected, not baked in.
+- Smoke tests and approvals; canary or blue/green where appropriate.
+- Rollback by redeploying the previous artifact, with backward-compatible migrations.
+</SayItOut>
+
+<Collapsible>
+- Order Dockerfile layers so dependency install is cached and only source changes rebuild.
+- Run as non-root; use a `.dockerignore`; pin base image versions or digests.
+- Feature flags decouple deploy from release.
+- Module Federation is the common mechanism for Angular or React micro-frontends.
+</Collapsible>
+
+<CheatSheet>
+
+- Pipeline: PR checks, CI, multi-stage build, scans, immutable artifact, promotion, smoke tests, approvals, rollback.
+- Build once, promote the same artifact; only config differs.
+- Multi-stage: build in a fat image, ship a slim runtime (nginx for Angular, JRE for Spring).
+- Rollback needs backward-compatible DB migrations.
+- Micro-frontends: team autonomy and independent releases, at the cost of version skew and integration testing.
+
+</CheatSheet>

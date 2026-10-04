@@ -1,0 +1,108 @@
+---
+number: 5
+title: "Java essentials for TS/Python devs"
+minutes: 25
+day: 1
+---
+
+## Why this matters
+
+This lesson is on both backend tracks. Candidate-reported Citi screens have included Java trivia (equals/hashCode, checked vs unchecked exceptions) and fixing a failing Java test. The goal is to **read** Java confidently and explain it, not to write programs from scratch.
+
+## Core idea
+
+- **Static types:** every variable has a compile-time type. `var x = new ArrayList<String>();` infers it (local variables only).
+- **Types of types:** `class` (state plus behaviour), `interface` (a contract; a class can implement many), `abstract class` (partial implementation, single inheritance), `record` (immutable data carrier: `record Trade(String id, BigDecimal amount) {}` gives constructor, getters like `id()`, `equals`, `hashCode`, `toString`).
+- **Generics:** `List<String>`, `Map<String, Trade>`; checked at compile time, erased at runtime. Only reference types: `List<Integer>`, not `List<int>`.
+- **Access:** `public`, `protected`, package-private (no keyword), `private`. `final` on a variable means it cannot be reassigned (the object can still change); on a class, no subclassing.
+- **Collections:** `List` (`ArrayList` fast index access; `LinkedList` rarely right), `Set` (`HashSet` unordered, `LinkedHashSet` insertion order, `TreeSet` sorted), `Map` (`HashMap`, `LinkedHashMap`, `TreeMap`).
+- **Streams:** `list.stream().filter(...).map(...).collect(Collectors.toList())`; `Collectors.groupingBy(Trade::desk)` gives a `Map` of lists. Lambdas are `x -> x.amount()`; `Trade::desk` is a method reference.
+- **Optional:** a return type meaning "maybe absent": `findById(id).orElse(null)`, `.map(...)`, `.orElseThrow()`. Do not use it for fields or parameters.
+- **== vs equals:** `==` compares references for objects; `equals()` compares logical value. `"a" == new String("a")` is false. Compare strings with `equals`.
+- **equals/hashCode contract:** equal objects must have equal hash codes. Override **both together**, using the same stable (ideally immutable) fields. Break it and `HashMap`/`HashSet` lose objects.
+- **Exceptions:** *checked* (extend `Exception`, not `RuntimeException`) must be declared with `throws` or caught. *Unchecked* (`RuntimeException`, `Error`) need not be, and usually signal programming errors (null, bad argument, bad state). Spring rolls back `@Transactional` on unchecked exceptions by default, not checked ones.
+- **try-with-resources:** `try (var in = Files.newBufferedReader(p)) {...}` closes anything `AutoCloseable` automatically.
+- **Money:** never `double`. Use `BigDecimal`, build from strings, compare with `compareTo` (not `equals`, which also compares scale: `2.0` vs `2.00`).
+
+<Bridge from="TypeScript / Python" breaks="Java is nominal and class-based: types match by declared name, not by shape, and every function lives in a class.">
+`interface` is like a TS interface but must be explicitly implemented (no structural typing). A `record` is like a frozen dataclass / `readonly` object. `Optional<T>` is `T | undefined`. Streams are `map/filter/reduce` chains; `groupingBy` is `Object.groupBy` or `itertools.groupby` done right. `.equals()` is Python's `==`; Java's `==` is Python's `is`.
+</Bridge>
+
+## Example
+
+Read this and spot the bugs. Then check the test.
+
+```java
+public record Money(String currency, BigDecimal amount) {}
+
+public class Account {
+    private final String id;
+    private final List<Trade> trades = new ArrayList<>();
+
+    public Account(String id) { this.id = id; }
+
+    public BigDecimal total() {
+        return trades.stream()
+            .map(Trade::amount)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    @Override public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Account other)) return false;
+        return id.equals(other.id);
+    }
+    @Override public int hashCode() { return Objects.hash(id); }
+}
+
+class AccountTest {
+    @Test
+    void totalsTrades() {
+        Account a = new Account("A1");
+        a.addTrade(new Trade("T1", new BigDecimal("10.50")));
+        assertEquals(new BigDecimal("10.50"), a.total());
+    }
+
+    @Test
+    void rejectsNullId() {
+        assertThrows(IllegalArgumentException.class, () -> new Account(null));
+    }
+}
+```
+
+What to notice: `equals` and `hashCode` use the same field (`id`). The first test would fail to compile if `addTrade` does not exist. The second fails because the constructor never throws; the fix is a check such as `Objects.requireNonNull` (which throws `NullPointerException`, so the test must expect that instead) or an explicit `IllegalArgumentException`. In JUnit 5, `assertEquals(expected, actual)`: expected first.
+
+## Practice
+
+Answer from memory, then reveal.
+
+<Practice />
+
+<SayItOut prompt="Explain the equals/hashCode contract and the difference between checked and unchecked exceptions.">
+- Equal objects must return equal hash codes; override both together with the same stable fields.
+- What breaks: HashMap/HashSet lookups fail for equal objects with different hashes.
+- Checked must be declared or handled; unchecked usually signal programming errors.
+- Spring rolls back @Transactional on unchecked exceptions by default; checked need rollbackFor.
+</SayItOut>
+
+<Collapsible title="Go deeper: threads and concurrency (candidate-reported for later rounds)">
+- **Thread basics:** a `Thread` runs a `Runnable`. Prefer an `ExecutorService` (`Executors.newFixedThreadPool(4)`): submit tasks, get `Future`s, call `shutdown()`.
+- **CompletableFuture:** async pipelines: `supplyAsync(() -> load()).thenApply(...).thenCombine(other, ...)`; handle failures with `exceptionally` or `handle`. Like `Promise.all` and `.then` in JS, or `asyncio.gather`.
+- **Race conditions:** `count++` is not atomic. Fixes: `synchronized` (one thread in the block at a time, uses an intrinsic lock), `AtomicInteger`, or `java.util.concurrent.locks.ReentrantLock`.
+- **ConcurrentHashMap:** thread-safe map with fine-grained locking; use `merge`/`computeIfAbsent` for atomic updates. Plain `HashMap` is not safe for concurrent writes. No null keys or values.
+- **`volatile`:** guarantees visibility, not atomicity.
+- **Immutability:** `final` fields, no setters, defensive copies (`List.copyOf`), records. Immutable objects are thread-safe by construction and make good map keys.
+- **Deadlock:** two threads each hold one lock and wait for the other; avoid by acquiring locks in a consistent order.
+- Python note: the GIL limits CPU parallelism in threads, Java threads run truly in parallel.
+</Collapsible>
+
+<CheatSheet>
+
+- equals/hashCode: equal objects have equal hashes; override both with the same stable fields.
+- == compares references; equals() compares value; BigDecimal compare with compareTo.
+- Checked: must declare or handle. Unchecked: programming errors; Spring rolls back on unchecked by default.
+- Streams: filter, map, collect, groupingBy. Optional for maybe-absent returns.
+- JUnit 5: @Test, assertEquals(expected, actual), assertThrows(Type.class, () -> ...).
+- Money: BigDecimal from strings, never double. try-with-resources closes AutoCloseable.
+
+</CheatSheet>

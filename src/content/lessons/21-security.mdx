@@ -1,0 +1,78 @@
+---
+number: 21
+title: "Security: authN vs authZ, JWT/OAuth basics, CORS, CSRF, XSS"
+minutes: 30
+day: 3
+---
+
+## Why this matters
+
+This is a bank: security is part of the job description for a risk platform, and senior candidates are expected to reason about entitlements, auditability and data handling. You know the web; this lesson sharpens the vocabulary and the common misconceptions.
+
+## Core idea
+
+**The server enforces entitlements. Hiding UI is not security.** Anyone can call your API with curl.
+
+| Term | Question it answers |
+|---|---|
+| **AuthN** | Who are you? (login, token validation) |
+| **AuthZ** | What may you do? (roles, entitlements, row-level rules) |
+
+- **Sessions vs JWT:** a session is a server-side record referenced by an opaque cookie (easy to revoke). A JWT is a signed, self-contained token (stateless, hard to revoke before expiry, readable by anyone, so never put secrets in it). Validate signature, `exp`, `iss`, `aud` on every request. Prefer short-lived access tokens plus refresh.
+- **OAuth2 / OIDC:** OAuth2 delegates *authorization* (access tokens); OIDC adds *authentication* (an ID token). For browser apps use **authorization code with PKCE**; the implicit flow is discouraged. Banks usually sit behind an enterprise identity provider (SSO).
+- **CORS** is a *browser* policy relaxing the same-origin rule for reading responses. It is not access control: curl ignores it, and it does not stop requests being sent.
+- **CSRF:** a malicious site makes the browser send your cookies to the bank. Defences: `SameSite` cookies, CSRF tokens, checking `Origin`. Bearer tokens in an `Authorization` header are not sent automatically, but then XSS can steal them from storage.
+- **XSS:** attacker script runs in your page. Defences: output encoding, avoid raw HTML, a **CSP**. Angular sanitises and escapes by default; `bypassSecurityTrust*` and `innerHTML` with untrusted data switch that off. React's `dangerouslySetInnerHTML` is the same hazard.
+- **Clickjacking:** framing your page; use `frame-ancestors` in CSP or `X-Frame-Options`.
+- **Audit logging:** who did what, when, to which record, with outcome. Keep **PII and secrets (tokens, passwords, card numbers) out of logs.**
+
+<Bridge from="React / FastAPI" breaks="Angular's HttpClient and Spring Security have built-in CSRF and sanitisation conventions you must not disable casually.">
+A FastAPI `Depends(get_current_user)` plus a permission check is Spring Security's filter chain plus `@PreAuthorize`. Angular route guards are like React Router guards: UX only.
+</Bridge>
+
+## Example
+
+Enforce on the server, per call, including object-level checks:
+
+```python
+@app.get("/positions/{desk}")
+def positions(desk: str, user: User = Depends(authenticate)):   # authN: valid token
+    if desk not in user.entitled_desks:                          # authZ: every call
+        audit.log(user.id, "DENY", f"positions:{desk}")
+        raise HTTPException(status_code=403)
+    audit.log(user.id, "READ", f"positions:{desk}")
+    return repo.positions(desk)
+```
+
+Status codes: `401` not authenticated, `403` authenticated but not allowed.
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="A teammate says 'we hide the approve button for non-managers, so it is secure'. Respond.">
+- Hiding a button is UX; the API is still callable directly.
+- The server must authenticate and authorize every protected call, including object-level checks.
+- Return 401 vs 403 correctly; deny by default.
+- Audit approvals and denials; keep PII and secrets out of logs.
+- Test the endpoint as a non-manager.
+</SayItOut>
+
+<Collapsible>
+- **Token storage:** httpOnly, Secure, SameSite cookies resist XSS theft; localStorage does not.
+- **Other basics:** parameterised queries against SQL injection, TLS everywhere, least privilege, secrets in a vault, dependency scanning.
+- **JWT pitfalls:** reject `alg: none`, pin accepted algorithms, check `aud`.
+- **Preflight:** CORS `OPTIONS` requests; `Access-Control-Allow-Origin: *` cannot be combined with credentials.
+</Collapsible>
+
+<CheatSheet>
+
+- Server enforces entitlements on every call; UI hiding is UX.
+- AuthN = who; AuthZ = what. 401 vs 403.
+- JWT: signed not secret; validate sig, exp, iss, aud. Sessions revoke easily.
+- Auth code + PKCE for browsers; OIDC adds identity.
+- CORS is a browser policy, not access control; CSRF uses SameSite and tokens.
+- XSS: encode output, CSP, avoid bypassSecurityTrust* and raw HTML.
+- Audit who/what/when; no PII or secrets in logs.
+
+</CheatSheet>

@@ -1,0 +1,134 @@
+---
+number: 25
+title: "System design: risk-management portal walkthrough"
+minutes: 45
+day: 3
+---
+
+## Why this matters
+
+System design is candidate-reported for later Citi rounds, and a risk portal is a natural prompt for a role on an enterprise risk platform. The interviewer is judging structure, trade-offs and honesty about assumptions, not a perfect diagram. Below is a 45-minute phase guide. It is reading guidance only, not a timer.
+
+| Phase | Minutes |
+|---|---|
+| Requirements | 5 |
+| Non-functional requirements | 5 |
+| Architecture | 10 |
+| Front end, API, data | 10 |
+| Security and resilience | 7 |
+| Delivery and observability | 5 |
+| Trade-offs | 3 |
+
+<PartBreak title="Part A: requirements to architecture"/>
+
+## Core idea
+
+**Prompt:** design a portal where risk managers view exposures, limit breaches and alerts per desk, drill into positions, and export reports.
+
+**Requirements (ask, then restate).** Who uses it (risk managers, auditors, read-only vs approvers)? Which views (exposure by desk, breaches, trends)? How fresh must data be (intraday vs end of day)? Is it read-heavy (almost certainly)? Do users act (acknowledge a breach) or only read? Write down what is out of scope.
+
+**Non-functional requirements.** Put numbers on them, even rough ones: a few thousand users, p95 under 2 s for dashboards, 99.9% availability in business hours, data at most 5 minutes stale intraday, full audit trail of who saw and did what, entitlements enforced per desk and per book, retention set by policy.
+
+**Architecture.** Keep it boring: an SPA, a gateway for authentication and rate limits, a few services split by domain, a relational store for the source of truth, a cache for hot aggregates, and a queue for ingestion and alerts.
+
+<Mermaid chart={`graph LR
+  U[Browser: Angular SPA] --> G[API gateway: authN, rate limit]
+  G --> E[Exposure service]
+  G --> B[Breach and alert service]
+  G --> R[Reporting service]
+  E --> C[(Cache)]
+  E --> D[(Relational DB)]
+  B --> D
+  R --> D
+  F[Upstream risk feeds] --> Q[[Queue]]
+  Q --> I[Ingestion workers]
+  I --> D
+  Q --> B`} />
+
+- **Read path:** SPA to gateway to service, cache first, database on a miss. **Write path:** feeds go through the queue to idempotent ingestion workers, which update the database and invalidate or refresh the cache.
+- Prefer a modular start over many microservices; split only where scaling, ownership or failure isolation differs. Say this out loud.
+
+**Natural stopping point.** If you are tired, stop here. Part B continues with the front end, data model, security and delivery.
+
+<PartBreak title="Part B: the rest"/>
+
+### Front end, API and data (10 min)
+
+- **Front end:** route per view, lazy-loaded; server-driven pagination and filtering for big tables; a thin state layer (signals or a store) that holds the filter plus the "as of" time.
+- **API:** REST with versioned paths, cursor pagination, and an `asOf` parameter so the same query is reproducible. Return a metadata block with each response: `asOf`, `completeness`, `currency`.
+- **Data model:** `position(book_id, instrument_id, as_of, quantity, market_value)`, `limit(book_id, metric, threshold)`, `breach(limit_id, as_of, value, status)`. Store money as `NUMERIC(p,s)` or integer minor units, never float. Keep snapshots append-only so history and audit are free.
+
+**Risk-UX rules** (these separate a risk screen from a generic dashboard):
+
+1. Show an **"as of" timestamp** on every figure and every export.
+2. Distinguish **zero from no data**: `0` is a measurement, an empty cell is a gap. Never render a missing value as 0.
+3. Mark **stale or partial** data visibly (a banner or icon) when a feed is late or only some books loaded; never silently present a partial total as complete.
+4. **Precision and rounding:** decimals, not floats; round only at display, with a stated rule; totals must equal the sum of what is shown or explain the difference.
+5. **Drill-down lineage:** from a total to desk to book to position to source feed and load time.
+6. **Server-side entitlements:** hiding a button is cosmetic. Every query is filtered by the caller's entitlements on the server.
+
+### Security and resilience (7 min)
+
+- **AuthN/Z:** SSO (OIDC) at the gateway; short-lived tokens; the service enforces entitlements (desk/book) per request, deny by default; audit every read of sensitive data and every action.
+- **Data protection:** TLS everywhere, encryption at rest, secrets in a vault, no sensitive data in logs or URLs.
+- **Resilience:** timeouts, bounded retries with backoff and jitter, circuit breakers, bulkheads between services; idempotency keys on writes and queue consumers; a dead-letter queue for poison messages; serve stale cached data with a stale marker rather than an error when the database is slow.
+- **Capacity:** read replicas and caching for dashboards; precompute heavy aggregates.
+
+### Delivery and observability (5 min)
+
+- CI with tests, dependency and secret scanning; immutable images; progressive rollout (canary or blue/green) with a fast rollback; schema migrations that are backward compatible (expand, then contract).
+- Logs with correlation ids, metrics (latency, error rate, feed lag, cache hit rate), traces, and alerts on symptoms such as data freshness, not just CPU. Dashboards for SLOs.
+
+### Trade-offs (3 min)
+
+Name two or three and pick a side: monolith vs microservices (start modular); cache freshness vs load (short TTL plus explicit stale marker); consistency vs availability for dashboards (eventual is fine if "as of" is shown; not for limit approvals); precompute vs on-demand aggregation (storage and lag vs query cost).
+
+<Bridge from="React / TypeScript / FastAPI" breaks="The SPA never decides who may see what; in an enterprise design the server is the only trusted place.">
+It is like a FastAPI dependency that checks permissions on every route, while the React app merely hides menu items.
+</Bridge>
+
+## Example
+
+A response envelope that carries the risk-UX rules in the data itself:
+
+```json
+{
+  "asOf": "2026-03-02T14:05:00Z",
+  "completeness": { "booksLoaded": 41, "booksExpected": 43, "status": "partial" },
+  "currency": "USD",
+  "rows": [
+    { "desk": "Rates", "exposure": "1250000.50", "limitUtilisation": "0.83" },
+    { "desk": "FX", "exposure": null }
+  ]
+}
+```
+
+Amounts are strings (or decimals) to avoid float rounding, and `null` for FX means no data, not zero.
+
+## Practice
+
+Answer the architecture and security questions as if to an interviewer.
+
+<Practice />
+
+<SayItOut prompt="Walk through your design for a risk-management portal, from requirements to the main trade-off, in 60-90 seconds.">
+- Restate the goal and name two or three functional and numeric non-functional requirements.
+- The component chain: SPA, gateway, services, database, cache, queue for ingestion.
+- Risk-UX: as-of time, zero vs no data, stale markers, decimal precision, lineage.
+- Server-side entitlements, audit, and how the system degrades.
+- One trade-off you chose and why.
+</SayItOut>
+
+<Collapsible title="Go deeper: where an LLM summary feature would fit">
+An optional "summarise today's breaches" feature belongs behind a separate server-side service, never called from the browser. It receives only data already filtered by the caller's entitlements, calls the model with keys held server-side, and returns text labelled as AI-generated with the "as of" time and links to source rows. Treat output as untrusted (render as plain text, no actions executed from it), log prompts and responses for audit, and keep a human in the loop for anything that drives a decision. Numbers should come from the database, not be recomputed by the model. See lesson 24.
+</Collapsible>
+
+<CheatSheet>
+
+- Restate, ask, give numbers for NFRs; say what is out of scope.
+- SPA, gateway, services, DB, cache, queue; start modular.
+- Risk UX: as-of, zero vs null, stale/partial, decimals, lineage.
+- Entitlements on the server, deny by default, audit everything.
+- Timeouts, retries with backoff, circuit breakers, idempotency, DLQ; name your trade-offs.
+
+</CheatSheet>

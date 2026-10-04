@@ -1,0 +1,86 @@
+---
+number: 15
+title: "Testing 1: Jasmine, Karma, TestBed, Cypress roles"
+minutes: 25
+day: 2
+---
+
+## Why this matters
+
+The job description names Jasmine, Karma and Cypress, and candidate-reported screens included a test-fixing task. You need to say which tool does which job, because people routinely blur them.
+
+## Core idea
+
+Four tools, four different jobs:
+
+| Tool | Role | Analogy |
+|---|---|---|
+| **Jasmine** | Test framework: `describe`, `it`, `expect` matchers, spies | Jest/Vitest's API |
+| **Karma** | Test runner: launches real browsers (often headless Chrome), serves your bundle, reports results | Vitest in browser mode |
+| **TestBed** | Angular's test environment: builds a mini module with DI and templates so components and services run as in the app | `render()` from React Testing Library plus a DI container |
+| **Cypress** | End-to-end/integrated flows: drives a real running app in a browser | Playwright |
+
+- **Spec**: a file (`*.spec.ts`) with `describe` blocks of `it` cases. **Expectation**: `expect(x).toBe(y)`. **Spy**: `spyOn(service, 'load').and.returnValue(of(data))` records calls and replaces behaviour.
+- **TestBed** configures providers, so you replace a real service with a fake: `{ provide: TradeService, useValue: fake }`. Standalone components go in `imports`, not `declarations`.
+- **Cypress** tests the whole stack: click, type, assert on the page, and stub network with `cy.intercept`. It is slower and fewer, covering critical journeys.
+
+<Bridge from="React / TypeScript / FastAPI" breaks="Angular tests need an explicit DI environment (TestBed), so a component cannot be rendered without declaring its providers and imports.">
+Jasmine is Jest's `describe/it/expect`. Karma is the runner that Vitest/Jest replace. TestBed is `render()` plus overriding providers. Cypress is Playwright.
+</Bridge>
+
+## Example
+
+```ts
+describe('TradeListComponent', () => {
+  let fixture: ComponentFixture<TradeListComponent>;
+  let svc: jasmine.SpyObj<TradeService>;
+
+  beforeEach(async () => {
+    svc = jasmine.createSpyObj('TradeService', ['load']);
+    svc.load.and.returnValue(of([{ id: 1, symbol: 'AAPL' }]));
+
+    await TestBed.configureTestingModule({
+      imports: [TradeListComponent],               // standalone
+      providers: [{ provide: TradeService, useValue: svc }],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(TradeListComponent);
+    fixture.detectChanges();                       // runs ngOnInit
+  });
+
+  it('renders one row per trade', () => {
+    expect(fixture.nativeElement.querySelectorAll('li').length).toBe(1);
+    expect(svc.load).toHaveBeenCalledTimes(1);
+  });
+});
+```
+
+Reality check: Karma is deprecated by the Angular team, and new projects use Jest or Vitest. Many enterprise codebases remain on Jasmine/Karma, and Jest supports the same `describe/it/expect` shape (spies become `jest.fn()`). Say that you know the concepts transfer.
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Explain what Jasmine, Karma, TestBed and Cypress each do, and when you would write a Cypress test instead of a unit test.">
+- Jasmine: framework with specs, expectations, spies.
+- Karma: runner that executes them in real browsers.
+- TestBed: DI and template environment for components and services.
+- Cypress: end-to-end flows against a running app; few, for critical journeys.
+- Mention the Jest/Vitest migration trend.
+</SayItOut>
+
+<Collapsible>
+- Testing pyramid: many fast unit tests, fewer component/integration tests, a handful of end-to-end tests.
+- `ng test` runs the Karma/Jasmine setup; headless: `ng test --watch=false --browsers=ChromeHeadless`.
+- Prefer `data-testid` or roles over CSS classes in selectors, for both TestBed queries and Cypress.
+</Collapsible>
+
+<CheatSheet>
+
+- Jasmine = framework (describe/it/expect/spies); Karma = browser runner.
+- TestBed = Angular DI and template test environment; swap providers with fakes.
+- Cypress = end-to-end flows in a real browser, stub network with cy.intercept.
+- Karma is deprecated; Jest/Vitest migrations are common, concepts carry over.
+- Few e2e tests, many unit tests.
+
+</CheatSheet>

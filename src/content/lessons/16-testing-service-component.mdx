@@ -1,0 +1,128 @@
+---
+number: 16
+title: "Testing 2: Test a service and a component"
+minutes: 30
+day: 2
+---
+
+## Why this matters
+
+Writing or fixing a service test and a component test is the practical form of "do you know Angular testing". The job description lists Jasmine, Karma and Cypress; this lesson is the unit-level skill behind them. The rule that earns points: **assert behaviour, not internals**.
+
+## Core idea
+
+- **Service test:** `HttpClientTestingModule` (or `provideHttpClient()` + `provideHttpClientTesting()`) swaps the real backend for `HttpTestingController`. You expect a request, then **flush** a response or error.
+- **Component test:** provide a fake service, call `fixture.detectChanges()`, then assert on the DOM the user sees.
+- **Async:** `fakeAsync` + `tick(ms)` controls timers and promises synchronously; `waitForAsync` + `fixture.whenStable()` waits for real async work.
+- Call `httpMock.verify()` in `afterEach` so a forgotten or unexpected request fails the test.
+
+<Bridge from="React / TypeScript / FastAPI" breaks="Angular tests need providers wired through TestBed, and change detection is manual: nothing renders until you call detectChanges().">
+`HttpTestingController` is `msw` or a mocked `fetch`; `fixture.detectChanges()` is the render/rerender step; `By.css` / `querySelector` plays the role of `screen.getByText`. FastAPI equivalent: `app.dependency_overrides` plus `TestClient`.
+</Bridge>
+
+## Example
+
+Service: success, 404 and retry.
+
+```ts
+describe('TradeService', () => {
+  let svc: TradeService;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting(), TradeService],
+    });
+    svc = TestBed.inject(TradeService);
+    http = TestBed.inject(HttpTestingController);
+  });
+  afterEach(() => http.verify());            // no unexpected or unmatched requests
+
+  it('returns trades', () => {
+    let result: Trade[] | undefined;
+    svc.load().subscribe(r => (result = r));
+    const req = http.expectOne('/api/trades');
+    expect(req.request.method).toBe('GET');
+    req.flush([{ id: 1, symbol: 'AAPL' }]);
+    expect(result?.length).toBe(1);
+  });
+
+  it('surfaces a 404', () => {
+    let status = 0;
+    svc.load().subscribe({ error: e => (status = e.status) });
+    http.expectOne('/api/trades').flush('missing', { status: 404, statusText: 'Not Found' });
+    expect(status).toBe(404);
+  });
+
+  it('retries once on network error', () => {   // service uses retry(1)
+    let result: Trade[] | undefined;
+    svc.load().subscribe(r => (result = r));
+    http.expectOne('/api/trades').error(new ProgressEvent('error'));
+    http.expectOne('/api/trades').flush([]);    // the retry
+    expect(result).toEqual([]);
+  });
+});
+```
+
+Component: loading, threshold, error with retry, disabled action.
+
+```ts
+it('shows loading, then rows, flags breaches, disables Approve', fakeAsync(() => {
+  const subject = new Subject<Position[]>();
+  svc.positions.and.returnValue(subject);       // jasmine.SpyObj<PositionService>
+  fixture.detectChanges();
+  expect(q('[data-testid=spinner]')).toBeTruthy();
+
+  subject.next([{ id: 1, exposure: 120, limit: 100 }]);
+  tick();
+  fixture.detectChanges();
+  expect(q('[data-testid=spinner]')).toBeNull();
+  expect(q('[data-testid=row-1]').classList).toContain('breach');   // exposure > limit
+  expect(q<HTMLButtonElement>('[data-testid=approve]').disabled).toBeTrue();
+}));
+
+it('shows an error and retries on click', () => {
+  svc.positions.and.returnValues(throwError(() => new Error('boom')), of([]));
+  fixture.detectChanges();
+  expect(q('[role=alert]').textContent).toContain('Could not load');
+  q<HTMLButtonElement>('[data-testid=retry]').click();
+  fixture.detectChanges();
+  expect(svc.positions).toHaveBeenCalledTimes(2);
+  expect(q('[role=alert]')).toBeNull();
+});
+```
+
+Here `q` is a small helper: `(s: string) => fixture.nativeElement.querySelector(s)`.
+
+<Callout tone="warn">
+Do not assert on private fields, internal method names or exact call order of internals. If a refactor keeps the screen working, the test should still pass. Assert what the user sees and which collaborator calls the contract requires.
+</Callout>
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Walk me through how you would test a component that loads positions from a service, including the loading, error and limit-breach states.">
+- TestBed with the component and a spy service providing fakes.
+- Control the observable (Subject or of/throwError) to drive loading, success and error.
+- detectChanges, then assert on DOM: spinner, rows, breach class, error message, retry.
+- Disabled-button check; click retry and assert the service call.
+- Assert behaviour, not internals.
+</SayItOut>
+
+<Collapsible>
+- `fakeAsync` cannot wait on real HTTP or timers outside the zone; use `tick`/`flush` for virtual timers, `waitForAsync` for real promises.
+- Use `jasmine.SpyObj<T>` with `createSpyObj` so the fake matches the type.
+- Use `HttpTestingController.match` when a call fires several similar requests.
+- With `ChangeDetectionStrategy.OnPush`, change inputs via `fixture.componentRef.setInput`.
+</Collapsible>
+
+<CheatSheet>
+
+- HttpTestingController: expectOne, flush (success or status), error, and verify() in afterEach.
+- Component tests: fake the service, detectChanges, assert on the DOM.
+- fakeAsync + tick for virtual time; waitForAsync + whenStable for real async.
+- Cover success, 404/error, retry, loading, threshold, disabled states.
+- Assert behaviour, not internals.
+
+</CheatSheet>

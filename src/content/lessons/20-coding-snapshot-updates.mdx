@@ -1,0 +1,90 @@
+---
+number: 20
+title: "Coding 3: Snapshot plus updates (versions, deletes, ordering)"
+minutes: 35
+day: 2
+---
+
+## Why this matters
+
+A log or event counting problem is candidate-reported for Citi, and it fits a risk platform: events arrive late, duplicated or out of order, and you must still produce a correct current state. These problems are one idea in different clothes: keep the latest state per key, and decide what "latest" means.
+
+## Core idea
+
+**Snapshot plus updates:** a `Map<id, state>` is the snapshot; each event is an upsert or delete. Ask these clarifying questions out loud:
+
+- What decides "newest": arrival order, a **version**, or a **timestamp**? Are equal versions stale?
+- Does a delete remove the id, or leave a tombstone so a late older update cannot resurrect it? (Here a delete at a higher version wins and removes the id.)
+- Are aggregates recomputed at the end, or maintained incrementally? Incremental needs you to subtract the old value on update.
+- **Sequence gaps:** collect seen sequence numbers, scan from min to max, report the missing ones.
+
+Related classics:
+
+- **Stock Price Fluctuation (2034):** map timestamp to price, plus current max and min. Corrections make a lazy approach hard: use two heaps with stale-entry checks, or a sorted structure.
+- **Simple Bank System (2043):** validate account numbers and balances before mutating; make transfers all-or-nothing (check both, then change both).
+- **Time Based Key-Value Store (981):** per key, a list of `(time, value)`; `get` is a binary search for the greatest time at or below the query.
+
+<Bridge from="FastAPI / SQL" breaks="There is no transaction here; you enforce atomicity yourself by validating before mutating.">
+The map is a table keyed by id; an upsert is `INSERT ... ON CONFLICT DO UPDATE ... WHERE version < excluded.version`.
+</Bridge>
+
+## Example
+
+Capstone shape, keep newest version per id, delete removes, total by category, find gaps:
+
+```ts
+function solve(events: Ev[]) {
+  const latest = new Map<string, Ev>();
+  const seqs = new Set<number>();
+  for (const e of events) {
+    seqs.add(e.sequence);
+    const cur = latest.get(e.id);
+    if (!cur || e.version > cur.version) latest.set(e.id, e);   // equal = stale
+  }
+  const totals: Record<string, number> = {};
+  for (const e of latest.values())
+    if (!e.deleted) totals[e.category] = (totals[e.category] ?? 0) + e.amount;
+  // gaps: scan min..max over seqs, collect the missing ones
+}
+```
+
+Journey counting is a tiny state machine per user: `enter` while outside opens a journey; `exit` while inside completes it and counts one; anything else is ignored.
+
+```ts
+const inside = new Set<string>(); let done = 0;
+for (const { user, type } of events) {
+  if (type === 'enter') inside.add(user);
+  else if (inside.delete(user)) done++;     // orphan exit: delete returns false
+}
+```
+
+## Practice
+
+<CodeExercise ids={[7, 8, 9]} />
+
+<Practice />
+
+<SayItOut prompt="Describe how you would process out-of-order, versioned updates and deletes to get the current state, and how you would detect missing events.">
+- Map keyed by id; apply an update only if its version is higher.
+- Deletes remove the id (or leave a tombstone if late updates could resurrect it).
+- Aggregate at the end, or adjust incrementally by subtracting the old value.
+- Gaps: track sequence numbers, scan min to max for missing ones.
+- Complexity O(n) plus the range scan; test stale, equal, deleted and orphan cases.
+</SayItOut>
+
+<Collapsible>
+- **Idempotency:** replaying the same event must not change the result; version checks give you that.
+- **Binary search for 981:** keep times increasing per key, then find the last index with time at or below the query.
+- **Large gaps:** if sequences span billions, report ranges instead of listing each number.
+- **In production:** durable log (Kafka offsets), dead-letter queue for gaps, alert on lag.
+</Collapsible>
+
+<CheatSheet>
+
+- Snapshot map per id; apply update only if the version is newer.
+- Clarify: newest by version or time, equal means stale, delete semantics.
+- Incremental totals: subtract the old value, add the new.
+- Gaps: set of sequences, scan min to max.
+- State machine for pairs: orphan exits and duplicate enters ignored.
+
+</CheatSheet>

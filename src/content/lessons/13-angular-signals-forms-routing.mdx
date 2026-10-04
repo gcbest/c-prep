@@ -1,0 +1,98 @@
+---
+number: 13
+title: "Angular 4: Signals vs RxJS, forms, routing"
+minutes: 30
+day: 2
+---
+
+## Why this matters
+
+Modern Angular has two reactive tools, signals and RxJS, and interviewers like to ask when you would use which. Forms and routing are the other places where "read this code" questions come from. Candidate-reported Citi Angular segments were short, so aim for correct vocabulary and clear trade-offs.
+
+## Core idea
+
+**Signals** hold synchronous state and notify readers when it changes.
+
+- `count = signal(0)`; read with `count()`, write with `count.set(1)` or `count.update(n => n + 1)`.
+- `double = computed(() => count() * 2)`: derived, lazy, memoised.
+- `effect(() => console.log(count()))`: a side effect that reruns when dependencies change. Use sparingly (logging, syncing to storage), not to derive state.
+
+**RxJS** models async streams over time: HTTP, websockets, typing events, polling. Its strengths are operators for **cancellation** (`switchMap`), **concurrency control** (`mergeMap`, `concatMap`, `exhaustMap`), debouncing, retry and combining streams.
+
+**Rule of thumb:** signals for synchronous state and template reads; RxJS for async streams, cancellation and concurrency. Bridge them with `toSignal(obs$)` and `toObservable(sig)`.
+
+**Reactive forms:** build a `FormGroup` of `FormControl`s in code, with `Validators.required`, `minLength`, `pattern`, or custom validator functions that return an error object or `null`. Template-driven forms use `ngModel` and are fine for tiny forms. Reactive forms are easier to test and compose.
+
+**Router:** route config maps paths to components. Key features:
+
+- **Lazy loading:** `loadComponent: () => import(...)` (older: `loadChildren` for a module).
+- **Guards:** `canActivate` (can enter), `canDeactivate` (unsaved changes), `canMatch`. Modern: functions; older: classes.
+- **Resolvers:** fetch data before the route activates.
+- **Cleanup:** `takeUntilDestroyed()` or `DestroyRef.onDestroy`, older `takeUntil(this.destroy$)` with a Subject in `ngOnDestroy`. Router param streams and `valueChanges` do not complete by themselves.
+
+<Bridge from="React / TypeScript" breaks="Signals are closer to a built-in, fine-grained useState plus useMemo, but dependencies are tracked automatically (no dependency arrays). RxJS has no React counterpart in core; the nearest is async iterators or React Query plus abort controllers.">
+`signal` is `useState`, `computed` is `useMemo`, `effect` is `useEffect` without a dependency array. A guard is a route loader that redirects; a resolver is a loader (React Router) that supplies data. `switchMap` is "abort the previous fetch when a new one starts", like an effect cleanup calling `AbortController.abort()`.
+</Bridge>
+
+## Example
+
+```ts
+@Component({
+  standalone: true,
+  imports: [ReactiveFormsModule],
+  template: `
+    <input [formControl]="query" placeholder="Search trades" />
+    @for (t of results(); track t.id) { <p>{{ t.symbol }}</p> }`,
+})
+export class SearchComponent {
+  private api = inject(TradeService);
+  query = new FormControl('', { nonNullable: true, validators: [Validators.minLength(2)] });
+
+  results = toSignal(
+    this.query.valueChanges.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      switchMap(q => this.api.search(q)),  // cancels the stale request
+    ),
+    { initialValue: [] as Trade[] },       // toSignal unsubscribes automatically
+  );
+}
+
+// Routes
+export const routes: Routes = [
+  { path: 'trades', canActivate: [authGuard], resolve: { trades: tradesResolver },
+    loadComponent: () => import('./trades.component').then(m => m.TradesComponent) },
+];
+```
+
+Manual subscriptions: `.pipe(takeUntilDestroyed()).subscribe(...)` in an injection context, or pass a `DestroyRef`.
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="When do you use signals and when RxJS in Angular? Include how you handle search-as-you-type.">
+- Signals: synchronous state, derived values, simple template reads.
+- RxJS: async streams, cancellation, concurrency, debounce, retry.
+- Search-as-you-type: valueChanges, debounceTime, distinctUntilChanged, switchMap, then toSignal or async pipe.
+- Bridge with toSignal and toObservable; avoid effect for derivation.
+- Cleanup with takeUntilDestroyed or DestroyRef.
+</SayItOut>
+
+<Collapsible>
+- `switchMap` cancels the previous inner stream (search), `concatMap` queues (ordered saves), `mergeMap` runs in parallel (independent calls), `exhaustMap` ignores new triggers while busy (submit button).
+- Subjects: `BehaviorSubject` holds a current value and was the pre-signal way to build stores.
+- `input()` signals and `model()` (two-way) work with `computed` directly.
+- `FormBuilder` is a shorthand for creating groups. Typed forms arrived in Angular 14.
+- `toSignal` needs an `initialValue` (or the signal may be `undefined`) and must run in an injection context.
+</Collapsible>
+
+<CheatSheet>
+
+- `signal` / `computed` / `effect`: sync state, derived values, side effects (rare).
+- RxJS for async streams, cancellation (`switchMap`), concurrency, debounce.
+- `toSignal` / `toObservable` bridge the two.
+- Reactive forms: `FormGroup`, `Validators`, custom validator returns error or `null`.
+- Router: lazy `loadComponent`, guards, resolvers; clean up with `takeUntilDestroyed`.
+
+</CheatSheet>

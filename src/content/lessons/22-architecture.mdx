@@ -1,0 +1,100 @@
+---
+number: 22
+title: "Architecture: microservices, messaging, caching"
+minutes: 30
+day: 3
+---
+
+## Why this matters
+
+Candidate-reported later rounds at Citi have covered microservices, messaging and caching. Interviewers want trade-offs and failure thinking more than product names: what breaks, how you notice, and how you recover.
+
+## Core idea
+
+**Microservices vs modular monolith.** Microservices give independent deploys and scaling per team, at the price of network failure, distributed data and operational overhead. A modular monolith (clear module boundaries, one deployable) is often the right start; split out a service when team or scaling pressure justifies it.
+
+**REST vs messaging.** REST is synchronous request/response: simple, but the caller is coupled to the callee's availability and latency. Messaging is asynchronous: the producer publishes and moves on, consumers process later, which buys decoupling and buffering but means eventual consistency.
+
+**Kafka concepts.**
+- A **topic** is split into **partitions**; each is an append-only log.
+- **Ordering is guaranteed only within a partition.** Choose a key (for example `accountId`) so related events land in the same partition.
+- A **consumer group** shares partitions: each partition goes to one consumer in the group, so parallelism is capped by partition count.
+- Delivery is typically **at-least-once**: a crash after processing but before committing the offset causes redelivery. So consumers must be **idempotent** (dedupe by event id, or use upserts).
+
+**Caching.** Cache-aside: read the cache, on a miss read the database and populate with a TTL. On writes, update the database then invalidate (delete) the key. Watch stale reads, stampedes on a hot key expiring, and unbounded memory. "Invalidation is hard" means you must decide acceptable staleness.
+
+**Resilience toolkit.**
+- **Timeouts** on every remote call (no default of "wait forever").
+- **Retries with exponential backoff and jitter**, only for idempotent or keyed operations.
+- **Circuit breaker:** after repeated failures, fail fast for a while instead of piling load on a sick dependency.
+- **Idempotency keys:** the client sends a unique key; the server stores the first result and replays it on repeats, so a retried payment is not charged twice.
+- **Correlation IDs:** generate at the edge, pass in a header and every log line and message, so one request is traceable across services.
+
+<Bridge from="React / TypeScript / FastAPI" breaks="Kafka is a durable, replayable log with consumer offsets, not a queue that deletes messages once read.">
+A consumer group is like several workers sharing a job list where each partition is one list; offsets are a bookmark you can rewind. Retry with backoff is like TanStack Query's retry, but it must be safe on the server side too.
+</Bridge>
+
+<Mermaid chart={`flowchart LR
+  C[Command API] --> P[Producer]
+  P -->|key = accountId| T
+  subgraph T[Topic: limit-events]
+    P0[Partition 0]
+    P1[Partition 1]
+    P2[Partition 2]
+  end
+  P0 --> A[Consumer A]
+  P1 --> B[Consumer B]
+  P2 --> B
+  subgraph G[Consumer group: alerting]
+    A
+    B
+  end`} caption="Events with the same key stay ordered in one partition; each partition is read by exactly one consumer in the group." />
+
+## Example
+
+An idempotent consumer: the dedupe insert and the business effect share one transaction.
+
+```python
+def handle(event):
+    with db.transaction() as tx:
+        inserted = tx.execute(
+            "INSERT INTO processed_events(event_id) VALUES (%s) ON CONFLICT DO NOTHING",
+            (event["id"],),
+        ).rowcount
+        if inserted == 0:
+            return  # duplicate delivery, already handled
+        apply_limit_breach(tx, event)
+    # commit the Kafka offset only after the transaction succeeded
+```
+
+In Spring this is a `@KafkaListener` method with `@Transactional`; the idea is identical.
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="A payment service calls a downstream service that is sometimes slow. How do you make the call safe and the whole flow observable?">
+- Timeout, then retry with exponential backoff and jitter, only because the call carries an idempotency key.
+- Circuit breaker to fail fast and protect the dependency; a fallback or clear error.
+- Idempotent handling on the server: store the key and result, replay on repeat.
+- Correlation ID in headers and logs, plus metrics on latency, errors and breaker state.
+- Name the trade-off: retries can amplify load, so cap attempts.
+</SayItOut>
+
+<CompressHide>
+<Collapsible title="Saga, outbox and micro-frontends">
+- **Saga:** a multi-service business transaction as a sequence of local transactions, each with a compensating action (cancel the reservation) if a later step fails. Choreography (events) vs orchestration (a coordinator).
+- **Transactional outbox:** write the business row and an "event to publish" row in one DB transaction; a relay publishes from the outbox to Kafka. This avoids the dual-write problem (DB commit succeeds, publish fails).
+- **Micro-frontends:** justify them by team autonomy and independent release cadence, not by fashion. Accept the costs: version skew between shells and remotes, duplicated dependencies, UX consistency drift, and heavier integration testing.
+</Collapsible>
+</CompressHide>
+
+<CheatSheet>
+
+- Modular monolith first; split services for team autonomy or scaling, accepting network and data costs.
+- Kafka: order only within a partition, key by entity, consumers in a group share partitions, at-least-once means idempotent consumers.
+- Cache-aside with TTL; write DB then invalidate; mind stampedes and staleness.
+- Every remote call: timeout, backoff with jitter, circuit breaker, idempotency key.
+- Correlation ID from the edge through logs and messages.
+
+</CheatSheet>

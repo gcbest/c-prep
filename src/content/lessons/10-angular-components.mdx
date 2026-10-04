@@ -1,0 +1,106 @@
+---
+number: 10
+title: "Angular 1: Components, templates, data binding (via React)"
+minutes: 25
+day: 1
+---
+
+## Why this matters
+
+Candidate-reported Citi full-stack screens have included a short Angular segment (around ten minutes). You will mostly be asked to read a component and explain it, so the goal is fluent translation from React, not memorised syntax. Bank codebases often run older Angular, so you must recognise both the NgModule era and the modern standalone era.
+
+## Core idea
+
+An Angular component is a class (state and methods) plus a template (HTML with binding syntax) plus metadata in a decorator.
+
+| Binding | Syntax | React equivalent |
+|---|---|---|
+| Interpolation | `{{ trade.symbol }}` | `{trade.symbol}` |
+| Property | `[disabled]="busy"` | `disabled={busy}` |
+| Event | `(click)="save()"` | `onClick={save}` |
+| Two-way | `[(ngModel)]="name"` | `value` plus `onChange` |
+| Input from parent | `@Input() trade` | props |
+| Output to parent | `@Output() saved` | callback prop |
+
+- **Two eras of declaring components.** Older code declares components in an `NgModule` (`declarations`, `imports`, `bootstrap`). Since Angular 14+ (default from 17) components are `standalone: true` and list their own `imports`. No module needed.
+- **Two eras of control flow.** `*ngIf` / `*ngFor` (structural directives, need `CommonModule`) versus built-in `@if` / `@for` (Angular 17+). `@for` requires a `track` expression.
+- **Two eras of inputs and outputs.** Decorators `@Input()` / `@Output() x = new EventEmitter()` versus signal functions `input()` / `output()` (Angular 17.1+/17.3+).
+- **Content projection:** `<ng-content>` is where the parent's child markup lands. Named slots use `select`.
+- **Lifecycle:** `ngOnChanges` (inputs changed), `ngOnInit` (once, inputs are set; do setup here, not in the constructor), `ngOnDestroy` (unsubscribe, clear timers).
+- **Pipes** transform values in templates: `{{ amount | currency:'USD' }}`, `date`, `async`, `json`. Pure pipes only rerun when their input reference changes.
+
+<Bridge from="React / TypeScript" breaks="Angular templates are not JavaScript: you can only use a restricted expression language, and the framework (not you) decides when to re-render. There is no JSX and no hooks; lifecycle is class methods.">
+`@Input` is props, `@Output` is a callback prop, `ngOnInit` is `useEffect(..., [])`, `ngOnDestroy` is the cleanup function returned from it, `<ng-content>` is `children`, and a pipe is a pure formatting function called inside JSX.
+</Bridge>
+
+## Example
+
+Same component, older then modern:
+
+```ts
+// Older: NgModule era
+@Component({
+  selector: 'app-trade-row',
+  template: `
+    <div *ngIf="trade; else empty">
+      {{ trade.symbol }}: {{ trade.amount | currency }}
+      <button (click)="remove.emit(trade.id)">Remove</button>
+    </div>
+    <ng-template #empty>No trade</ng-template>`,
+})
+export class TradeRowComponent implements OnInit, OnDestroy {
+  @Input() trade?: Trade;
+  @Output() remove = new EventEmitter<number>();
+  ngOnInit() { /* inputs are available */ }
+  ngOnDestroy() { /* cleanup */ }
+}
+@NgModule({ declarations: [TradeRowComponent], imports: [CommonModule] })
+export class TradesModule {}
+```
+
+```ts
+// Modern: standalone, signal inputs, new control flow
+@Component({
+  selector: 'app-trade-row',
+  standalone: true,
+  imports: [CurrencyPipe],
+  template: `
+    @if (trade(); as t) {
+      {{ t.symbol }}: {{ t.amount | currency }}
+      <button (click)="remove.emit(t.id)">Remove</button>
+    } @else { No trade }`,
+})
+export class TradeRowComponent {
+  trade = input<Trade>();
+  remove = output<number>();
+}
+```
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Walk me through an Angular component, and map each part to what you know in React.">
+- Class plus template plus decorator; selector is the tag name.
+- Property, event and two-way binding syntax, and what each maps to in React.
+- Inputs down, outputs up (same one-way data flow as props and callbacks).
+- Lifecycle: ngOnInit for setup, ngOnDestroy for cleanup.
+- Mention both eras: NgModules versus standalone, ngIf versus @if.
+</SayItOut>
+
+<Collapsible>
+- `[(ngModel)]` is sugar for `[ngModel]="x" (ngModelChange)="x = $event"`; it needs `FormsModule`. The same "banana in a box" shape works for your own `@Input() value` plus `@Output() valueChange`.
+- A template reference variable (`#box`) names an element or component instance inside the template.
+- `ViewChild` queries a child from the class; available after `ngAfterViewInit`.
+- `ng-container` groups without adding a DOM element; `ng-template` is a chunk of markup rendered on demand.
+</Collapsible>
+
+<CheatSheet>
+
+- Component = class + template + decorator; `[prop]`, `(event)`, `[(ngModel)]`.
+- `@Input` / `@Output` (or `input()` / `output()`) are props and callback props.
+- NgModule `declarations` versus `standalone: true` with `imports`.
+- `*ngIf` / `*ngFor` versus `@if` / `@for` (with `track`).
+- `ngOnInit` for setup, `ngOnDestroy` for cleanup; `ng-content` is children.
+
+</CheatSheet>

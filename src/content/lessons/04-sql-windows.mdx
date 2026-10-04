@@ -1,0 +1,90 @@
+---
+number: 4
+title: "SQL 3: Subqueries, CTEs, window functions, latest-row-per-group"
+minutes: 30
+day: 1
+---
+
+## Why this matters
+
+"Latest row per group", "top N per group" and "remove duplicates" are the standard harder SQL questions, and all of them are one window function away. Candidate-reported Citi screens have included SQL of this kind, so this lesson is worth the time.
+
+## Core idea
+
+- **Scalar subquery:** returns one value, for example `WHERE amount > (SELECT AVG(amount) FROM trades)`.
+- **Correlated subquery:** references the outer row and runs logically once per outer row, for example `WHERE amount > (SELECT AVG(amount) FROM trades t2 WHERE t2.account_id = t.account_id)`.
+- **`IN` vs `EXISTS`:** `EXISTS` checks for any match and is NULL-safe when negated; `IN` compares to a list. Modern optimizers often plan them the same way.
+- **CTE:** `WITH name AS (...)` names a step so a query reads top to bottom. Use it instead of nested subqueries.
+- **Window function:** `fn() OVER (PARTITION BY g ORDER BY o)` computes per row **without collapsing rows**, unlike `GROUP BY`.
+
+| Function | Gives |
+|---|---|
+| `ROW_NUMBER()` | 1,2,3 with no ties |
+| `RANK()` | ties share a rank, then a gap (1,1,3) |
+| `DENSE_RANK()` | ties share a rank, no gap (1,1,2) |
+| `LAG(x)` / `LEAD(x)` | previous / next row's value |
+| `SUM(x) OVER (ORDER BY d)` | running total |
+
+- **Latest row per group / top-N per group / dedupe** are the same pattern: number the rows in each partition, then keep `rn = 1` (or `rn <= N`). You cannot filter on a window function in `WHERE`, so wrap it in a CTE or subquery.
+- **Why queries are slow:** no usable index, a function on an indexed column, `SELECT *`, row multiplication, or sorting large sets. Read the plan with `EXPLAIN`. An index on the join/filter/sort columns helps; a composite index on `(account_id, traded_at)` serves "latest per account".
+
+<Bridge from="TypeScript / Python" breaks="A window function does not reduce rows; the partition is a view over the same rows, and filtering on it needs an outer query.">
+`PARTITION BY account_id ORDER BY traded_at DESC` is like `groupBy(account_id)`, sorting each group, and attaching the index of each item to the item. Keeping `rn = 1` is `groups.map(g => g[0])`. In pandas: `df.sort_values(...).groupby(k).head(1)`.
+</Bridge>
+
+## Example
+
+Latest trade per account, plus each trade's running total:
+
+```sql
+WITH ranked AS (
+  SELECT t.*,
+         ROW_NUMBER() OVER (
+           PARTITION BY t.account_id
+           ORDER BY t.traded_at DESC, t.id DESC   -- tiebreaker keeps it deterministic
+         ) AS rn
+  FROM trades t
+)
+SELECT * FROM ranked WHERE rn = 1;
+
+SELECT id, account_id, amount,
+       SUM(amount) OVER (PARTITION BY account_id ORDER BY traded_at, id) AS running_total,
+       amount - LAG(amount) OVER (PARTITION BY account_id ORDER BY traded_at, id) AS change
+FROM trades;
+```
+
+Dialect quirks: top-N is `FETCH FIRST n ROWS ONLY` (Oracle 12c+, Postgres), `LIMIT n` (Postgres, SQLite) or `WHERE ROWNUM <= n` (older Oracle; applied before `ORDER BY`, so sort in a subquery first). `NVL` is Oracle-only; `COALESCE` works everywhere. Oracle treats `''` as `NULL`. SQLite supports window functions from 3.25.
+
+## Practice
+
+Seven exercises covering subqueries, CTEs and windows.
+
+<SqlExercise ids={[14, 15, 16, 17, 18, 19, 20]} />
+
+<Practice />
+
+<SayItOut prompt="Walk through how you would return the most recent trade for each account, and what changes for the top 3 per account.">
+- Window function ROW_NUMBER partitioned by account, ordered by traded_at descending.
+- Wrap in a CTE and filter rn = 1 (rn less than or equal 3 for top 3).
+- Add a tiebreaker column so results are deterministic.
+- Mention alternatives (correlated subquery with MAX, join to a grouped MAX) and RANK vs ROW_NUMBER for ties.
+</SayItOut>
+
+<Collapsible>
+- **Dedupe:** number rows partitioned by the duplicate key and delete or skip `rn > 1`.
+- **Frames:** with `ORDER BY`, the default frame is "start to current row" (by value, so ties are included). Use `ROWS BETWEEN 2 PRECEDING AND CURRENT ROW` for a moving window.
+- **Anti-pattern:** `MAX(date)` join returns several rows on a tie; `ROW_NUMBER` always returns one.
+- **Postgres only:** `DISTINCT ON (account_id) ... ORDER BY account_id, traded_at DESC` is a shortcut for latest per group.
+- **Index basics:** B-tree indexes serve equality, range and sort; leading column matters; each index slows writes. Check `EXPLAIN` for a full scan versus an index scan.
+</Collapsible>
+
+<CheatSheet>
+
+- Window functions keep rows; GROUP BY collapses them.
+- Latest/top-N/dedupe: ROW_NUMBER() OVER (PARTITION BY g ORDER BY o DESC), filter in an outer query.
+- ROW_NUMBER no ties; RANK gaps; DENSE_RANK no gaps; LAG/LEAD neighbours.
+- Running total: SUM(x) OVER (ORDER BY ...). Add a tiebreaker to ORDER BY.
+- Oracle: FETCH FIRST / ROWNUM, NVL; portable: COALESCE.
+- Slow query: read EXPLAIN, check indexes and functions on columns.
+
+</CheatSheet>

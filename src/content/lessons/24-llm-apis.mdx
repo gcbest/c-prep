@@ -1,0 +1,86 @@
+---
+number: 24
+title: "Working with LLM APIs"
+minutes: 15
+day: 3
+optional: true
+---
+
+## Why this matters
+
+LLM work is job-posting-reported, not a guaranteed topic. You already build agents, so lead with the enterprise framing: in a bank the model is an untrusted component behind your existing security, entitlement and audit controls.
+
+## Core idea
+
+**1. Calling an API.** It is stateless HTTP: you send the full context each call. Stream with Server-Sent Events for responsiveness. Set timeouts, retry 429 and 5xx with exponential backoff and jitter (honour `Retry-After`), and make retries safe with an idempotency key or by treating calls as read-only.
+
+**2. Keys stay server-side.** Never put an API key in the Angular or React bundle; anyone can read it. The browser calls your backend, which authenticates the user, enforces entitlements, rate limits per user, then calls the model.
+
+**3. Structured output, then validate.** Ask for JSON matching a schema, then validate it (Pydantic in FastAPI, Bean Validation in Spring). Model output is untrusted input: never render it as raw HTML, never concatenate it into SQL.
+
+**4. Tool use.** The model proposes a call; your app validates the arguments, checks the user's permissions, then executes. Least privilege, read-only by default, human approval for risky actions.
+
+**5. RAG at a glance.** Retrieve relevant documents, put them in the prompt, ask the model to answer with citations. The retrieval must be **filtered by the user's entitlements**, or the model leaks data they could not otherwise see.
+
+**6. Bank-grade concerns.**
+- Data classification and PII: redact before sending; approved models and regions only.
+- Prompt injection: text in documents is data, not instructions.
+- Audit log with correlation IDs (who, what context, which model, what output).
+- Eval sets and regression tests; accept non-determinism.
+- Cost and latency budgets, caching, fallbacks, human in the loop.
+
+**7. UI patterns.** Stream tokens, show loading, partial and error states, label content "AI-generated", offer correction and feedback, and never auto-submit model output.
+
+<Bridge from="React / TypeScript / FastAPI" breaks="The model is non-deterministic and its output can carry attacker-controlled text, so ordinary unit-test and trust assumptions do not hold.">
+Treat it like user input from a third party: validate with a schema (Pydantic is your Zod), authorize actions in your own code, and test with a fixed eval set rather than one expected string.
+</Bridge>
+
+## Example
+
+A thin backend endpoint (TypeScript) that keeps the key server-side and validates the result:
+
+```ts
+app.post('/api/summaries', requireAuth, rateLimit, async (req, res) => {
+  const docs = await search(req.body.query, { entitlements: req.user.entitlements });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    const raw = await callWithRetry(() =>
+      llm.complete({ prompt: buildPrompt(docs), signal: ctrl.signal }), // key lives in server env
+    );
+    const parsed = SummarySchema.safeParse(JSON.parse(raw)); // untrusted until validated
+    if (!parsed.success) return res.status(502).json({ error: 'invalid_model_output' });
+    audit.log({ user: req.user.id, corrId: req.id, docIds: docs.map(d => d.id) });
+    res.json(parsed.data); // render as text, never raw HTML
+  } finally { clearTimeout(timer); }
+});
+```
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Design an AI assistant that summarizes risk-limit breaches for a risk manager.">
+- Server-side model calls; the browser only talks to your authenticated backend.
+- Entitlement-filtered retrieval so the user only sees breaches for desks they may view, with citations.
+- Structured output validated against a schema; render as text, flag as AI-generated.
+- Audit logging with correlation IDs; PII redaction and approved models only.
+- Evaluation sets and regression tests for quality and non-determinism.
+- Human review: the manager confirms before any action or escalation.
+</SayItOut>
+
+<Collapsible title="Streaming and retries in more detail">
+- SSE keeps one HTTP response open; the backend proxies chunks to the browser. Handle client disconnects by aborting the upstream call to save cost.
+- Retry only on 429, 5xx and network errors, cap attempts, and add jitter so clients do not retry in lockstep.
+- Cache deterministic, non-sensitive results; keep a fallback (a smaller model or a plain non-AI view) when the provider is down.
+</Collapsible>
+
+<CheatSheet>
+
+- Keys and model calls stay on the server; browser calls your authenticated backend.
+- Validate structured output with a schema; treat it as untrusted; never render raw HTML.
+- Tool use: model proposes, app validates, authorizes, executes; read-only default, human approval for risky actions.
+- RAG retrieval must be entitlement-filtered; show citations.
+- Audit with correlation IDs, redact PII, use eval sets, budget cost and latency, keep a human in the loop.
+
+</CheatSheet>

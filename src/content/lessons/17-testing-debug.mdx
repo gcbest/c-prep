@@ -1,0 +1,178 @@
+---
+number: 17
+title: "Testing 3: Debug a failing unit test (Java/JUnit or Python/pytest)"
+minutes: 35
+day: 2
+---
+
+## Why this matters
+
+A seeded failing test is candidate-reported for Citi-style screens (the Karat format), and it is the most realistic unit-test task you will get. The interviewer watches your **loop**, not just the final line. This lesson gives you a repeatable loop, the six bug types that cause most failures, and a runnable lab you can practise on.
+
+## Core idea
+
+**The loop.** Read the test → reproduce it → inspect the code the test exercises → make the smallest fix → rerun the whole suite → explain the root cause out loud. Narrate each step; silence reads as guessing.
+
+**Six bug types to recognise.** Nearly every seeded failure is one of these:
+
+| Symptom | Usual cause |
+|---|---|
+| A `Set`/`Map` collapses rows, or two different objects count as equal | `equals()` without a matching `hashCode()` (or keyed on the wrong field) |
+| Totals are off by a cent, or `0.1 + 0.2 != 0.3` | `double`/`float` for money instead of `BigDecimal` |
+| A loop misses the last item or keeps one extra | off-by-one (`<` vs `<=`, `size` vs `size - 1`) |
+| Passes alone, fails in the full suite | shared mutable state: a `static` field, a reused map, or a singleton bean holding per-request data |
+| `NullPointerException` on real input | null or an empty collection not handled |
+| Sorting looks wrong for numbers or ties | a comparator inconsistent with `equals`, or sorting numbers as strings |
+
+<Callout tone="warn">Do not rewrite the class. Make the smallest change that makes the failing test pass, then explain why the original was wrong. A common follow-up is "now break the test on purpose and show me you understand it".</Callout>
+
+## Example
+
+The lab resolves duplicate trade reports. A trade is identified by its `id`; `symbol` is just the instrument. One test fails because `dedupe` keys on the symbol only, so two different AAPL trades collapse into one.
+
+<FileViewer
+  files={[
+    {
+      name: 'Trade.java',
+      code: `package lab;
+
+import java.math.BigDecimal;
+
+/** One executed trade. A trade is identified by its id; symbol is the instrument. */
+public record Trade(String id, String symbol, int quantity, BigDecimal price) {
+
+    public BigDecimal notional() {
+        return price.multiply(BigDecimal.valueOf(quantity));
+    }
+}`,
+    },
+    {
+      name: 'TradeReconciler.java',
+      code: `package lab;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/** Removes duplicate trade reports (same trade id and symbol), keeping the first one seen. */
+public class TradeReconciler {
+
+    public List<Trade> dedupe(List<Trade> trades) {
+        if (trades == null) {
+            return List.of();
+        }
+        Map<String, Trade> seen = new LinkedHashMap<>();
+        for (Trade t : trades) {
+            // BUG: the key is the symbol only, so two different trades in AAPL collapse into one.
+            seen.putIfAbsent(t.symbol(), t);
+        }
+        return new ArrayList<>(seen.values());
+    }
+
+    public BigDecimal totalNotional(List<Trade> trades) {
+        return dedupe(trades).stream()
+                .map(Trade::notional)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+}`,
+    },
+    {
+      name: 'TradeReconcilerTest.java',
+      code: `package lab;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.math.BigDecimal;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+class TradeReconcilerTest {
+
+    private final TradeReconciler reconciler = new TradeReconciler();
+
+    private static Trade trade(String id, String symbol, int qty, String price) {
+        return new Trade(id, symbol, qty, new BigDecimal(price));
+    }
+
+    @Test
+    void removesExactDuplicateReports() {
+        List<Trade> in = List.of(trade("T1", "AAPL", 10, "5.00"), trade("T1", "AAPL", 10, "5.00"));
+        assertEquals(1, reconciler.dedupe(in).size());
+    }
+
+    @Test
+    void nullAndEmptyInputGiveEmptyResult() {
+        assertTrue(reconciler.dedupe(null).isEmpty());
+        assertTrue(reconciler.dedupe(List.of()).isEmpty());
+    }
+
+    // FAILS until the dedupe key is fixed: expected 3 but was 2.
+    @Test
+    void keepsDistinctTradesInTheSameSymbol() {
+        List<Trade> in = List.of(
+                trade("T1", "AAPL", 10, "5.00"),
+                trade("T2", "AAPL", 20, "5.50"),
+                trade("T3", "MSFT", 5, "10.00"));
+        assertEquals(3, reconciler.dedupe(in).size());
+    }
+
+    @Test
+    void totalNotionalSumsDistinctTrades() {
+        List<Trade> in = List.of(
+                trade("T1", "AAPL", 10, "5.00"),
+                trade("T2", "AAPL", 20, "5.50"),
+                trade("T2", "AAPL", 20, "5.50"));
+        assertEquals(0, new BigDecimal("160.00").compareTo(reconciler.totalNotional(in)));
+    }
+}`,
+    },
+  ]}
+  steps={[
+    { title: "1. Read the failing test first", body: "The test name is the specification: keepsDistinctTradesInTheSameSymbol expects 3 but gets 2, so two distinct AAPL trades are being merged. Start from the test, not the code." },
+    { title: "2. Reproduce before touching anything", body: "Run the suite (mvn test). Confirm you see the same two failures. A bug you cannot reproduce is a bug you cannot claim to have fixed." },
+    { title: "3. Inspect only the exercised code", body: "dedupe builds a LinkedHashMap keyed by t.symbol(). With T1 and T2 both in AAPL, putIfAbsent drops the second. totalNotional fails for the same reason." },
+    { title: "4. Make the smallest fix", body: "Key the map on the trade id: seen.putIfAbsent(t.id(), t). If the rule is really (id, symbol), key on that pair. Do not rewrite the class." },
+    { title: "5. Rerun the whole suite", body: "Run mvn test again. keepsDistinctTradesInTheSameSymbol and totalNotionalSumsDistinctTrades now pass, and the exact-duplicate and null tests still pass." },
+    { title: "6. Explain the root cause", body: "The dedup key encoded the wrong identity. The fix aligns the key with the domain definition of a trade. Add one test for the same id with a different symbol if that can happen." },
+  ]}
+/>
+
+<Callout>
+Prefer running the real thing? The same lab ships in the repo: `cd labs/java-debug && mvn test`. The pytest twin is at `labs/python-debug` (`pip install -r requirements.txt && pytest`).
+</Callout>
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="You are handed a small repo with one failing JUnit test. Talk me through how you find and fix the bug.">
+- Read the test first and restate what it expects and why.
+- Reproduce with `mvn test` before changing anything; confirm the same failure.
+- Inspect only the code the test exercises; hold one hypothesis at a time.
+- Make the smallest fix (here the `Map` key is the wrong identity), not a rewrite.
+- Rerun the whole suite, and explain the root cause: the dedup key did not match the domain's definition of a trade.
+- Say what test you would add next.
+</SayItOut>
+
+<Collapsible>
+- **JUnit 5 vocabulary:** `@Test`, `@BeforeEach`, `assertEquals(expected, actual)`, `assertThrows`, `assertAll`; parameterised tests use `@ParameterizedTest` with `@ValueSource`.
+- **Mockito:** `@Mock`, `when(...).thenReturn(...)`, `verify(...)`; `@ExtendWith(MockitoExtension.class)` wires mocks in.
+- **Test slices, if asked:** `@WebMvcTest`, `@DataJpaTest` and `@SpringBootTest` each load a different amount of context.
+- **Float formatting bug:** `new BigDecimal(0.1)` is `0.1000000000000000055…`; construct from a String or use `BigDecimal.valueOf(0.1)`.
+- **equals/hashCode contract:** equal objects must have equal hash codes; override both together, on stable fields. A `record` generates both for you.
+- **`List.of()`** is immutable and rejects nulls; `List.of()` on a null argument is a `NullPointerException`.
+</Collapsible>
+
+<CheatSheet>
+
+- Loop: read test → reproduce → inspect → smallest fix → rerun all → explain.
+- Shared mutable state is the classic "passes alone, fails together" bug.
+- `equals()` must pair with `hashCode()`; key maps on the real identity.
+- Money uses `BigDecimal`, never `double`; construct it from a String.
+- Off-by-one and comparator bugs: check the boundary and the tie.
+- The same lab ships as Maven (Java) and pytest (Python).
+
+</CheatSheet>

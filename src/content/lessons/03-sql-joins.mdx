@@ -1,0 +1,88 @@
+---
+number: 3
+title: "SQL 2: Joins and anti-joins"
+minutes: 25
+day: 1
+---
+
+## Why this matters
+
+Joins are where most SQL interview mistakes happen: silently duplicated rows, lost rows, and the NULL trap in `NOT IN`. Candidate-reported Citi screens have included SQL on joined tables, and "find the rows with no match" is a classic risk-data question (accounts with no trades, trades with no limit).
+
+## Core idea
+
+A join pairs rows from two tables where the `ON` condition is true.
+
+| Join | Keeps |
+|---|---|
+| `INNER JOIN` | only pairs that match |
+| `LEFT JOIN` | every left row; right columns are `NULL` when there is no match |
+| `FULL OUTER JOIN` | every row from both sides (not in SQLite older versions) |
+
+- **Row multiplication:** if the key is duplicated on the right, each left row repeats once per match. 1 account with 5 trades and 2 limits gives 10 rows, so `SUM` over it double-counts. Aggregate each side first, or join on a unique key.
+- **Anti-join** (rows with no match), three ways:
+  1. `LEFT JOIN ... WHERE r.key IS NULL` (test a column that is never null on real matches, such as the key).
+  2. `WHERE NOT EXISTS (SELECT 1 FROM r WHERE r.key = l.key)` (usually the safest).
+  3. `WHERE l.key NOT IN (SELECT key FROM r)` (dangerous, see below).
+- **NOT IN trap:** if the subquery returns any `NULL`, `x NOT IN (...)` is never true, so you get zero rows. `NOT EXISTS` has no such problem.
+- **ON vs WHERE in outer joins:** a filter on the right table in `WHERE` turns a `LEFT JOIN` into an inner join (the NULL rows fail the filter). Put right-side conditions in `ON` to keep unmatched left rows.
+
+<Bridge from="TypeScript / Python" breaks="A join is not a lookup: it can multiply rows, and the result has no guaranteed order without ORDER BY.">
+An inner join is like `a.flatMap(x => b.filter(y => y.k === x.k).map(y => ({...x, ...y})))`. A left join is the same but emits `x` with `null`s when the filter is empty. The anti-join is `a.filter(x => !bKeys.has(x.k))`.
+</Bridge>
+
+## Example
+
+Accounts with no trades above 50, and trade counts that keep zero-trade accounts:
+
+```sql
+-- anti-join with NOT EXISTS
+SELECT a.id, a.desk
+FROM accounts a
+WHERE NOT EXISTS (
+  SELECT 1 FROM trades t
+  WHERE t.account_id = a.id AND t.amount > 50
+);
+
+-- keep every account: condition in ON, not WHERE
+SELECT a.id, COUNT(t.id) AS big_trades
+FROM accounts a
+LEFT JOIN trades t
+  ON t.account_id = a.id AND t.amount > 50
+GROUP BY a.id;
+```
+
+`COUNT(t.id)` counts only matched rows; `COUNT(*)` would report 1 for an account with no match.
+
+## Practice
+
+Six exercises on joins and anti-joins.
+
+<SqlExercise ids={[8, 9, 10, 11, 12, 13]} />
+
+<Practice />
+
+<SayItOut prompt="Explain how to find customers with no orders, and why NOT IN can return nothing at all.">
+- Name the options: LEFT JOIN with IS NULL, NOT EXISTS, NOT IN.
+- NOT IN with a NULL in the subquery makes the comparison unknown, so no row passes.
+- Prefer NOT EXISTS, or filter NULLs out of the subquery.
+- Mention checking the plan, and that duplicates in the right table do not affect an anti-join.
+</SayItOut>
+
+<Collapsible>
+- **Fan-out check:** compare `COUNT(*)` before and after a join; if it grows, the key is not unique on the joined side.
+- **Semi-join:** `WHERE EXISTS (...)` or `IN (...)` keeps left rows that have a match without multiplying them.
+- **Self join:** join a table to itself with aliases, for example employees to their managers.
+- **Oracle legacy:** `WHERE a.id = t.account_id(+)` is old outer-join syntax; you may meet it in old code. Use ANSI `LEFT JOIN`.
+- **Join types in plans:** nested loop (small or indexed side), hash join (large unsorted), merge join (sorted).
+</Collapsible>
+
+<CheatSheet>
+
+- INNER keeps matches; LEFT keeps all left rows with NULLs for no match.
+- Duplicate keys multiply rows; aggregate first or join on a unique key.
+- Anti-join: NOT EXISTS or LEFT JOIN ... IS NULL.
+- NOT IN returns nothing if the subquery has any NULL.
+- Right-table filters go in ON for a LEFT JOIN; in WHERE they make it an inner join.
+
+</CheatSheet>

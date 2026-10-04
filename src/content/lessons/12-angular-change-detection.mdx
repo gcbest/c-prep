@@ -1,0 +1,83 @@
+---
+number: 12
+title: "Angular 3: Change detection and OnPush"
+minutes: 25
+day: 2
+---
+
+## Why this matters
+
+"How does Angular know when to update the view?" and "what is OnPush?" are common Angular depth questions (candidate-reported for Angular roles in general; treat as likely rather than certain). If you can explain it as React's re-render rules in different clothes, you will sound fluent.
+
+## Core idea
+
+**Default change detection:** Angular runs a check over the whole component tree after any async event. **Zone.js** patches browser APIs (events, timers, promises, XHR) so Angular knows "something might have changed" and re-checks every template binding top to bottom.
+
+**OnPush:** `changeDetection: ChangeDetectionStrategy.OnPush` makes a component (and its subtree) checked only when:
+
+1. an **`@Input` reference changes** (identity, not deep equality);
+2. an **event** handled by the component or its template fires;
+3. the **`async` pipe** receives a new emission;
+4. a **signal read in the template** changes;
+5. you mark it explicitly with `ChangeDetectorRef.markForCheck()`.
+
+Consequences:
+
+- **Immutability:** with OnPush, `trades.push(x)` is invisible because the reference is the same. Write `trades = [...trades, x]`.
+- **Lists:** `*ngFor="let t of trades; trackBy: byId"` or `@for (t of trades; track t.id)` lets Angular reuse DOM rows instead of recreating them. `@for` requires `track`.
+- **`ExpressionChangedAfterItHasBeenChecked`:** in dev mode Angular checks twice; if a binding's value differs on the second pass (a child or lifecycle hook changed a parent's value mid-cycle), it throws. Fix the data flow; do not just wrap it in `setTimeout`.
+- **Profile first.** OnPush and trackBy are optimisations. Measure with Angular DevTools before applying them everywhere.
+
+<Bridge from="React" breaks="Angular does not re-run your component function. It re-evaluates template bindings in place, and the trigger (zone.js patching) is implicit rather than from setState.">
+OnPush is `React.memo`: skip the subtree unless inputs change by reference. `markForCheck` is a manual nudge. `trackBy` / `track` is the `key` prop. Immutable updates are required in both worlds. Signals (next lesson) give Angular something like fine-grained subscriptions, and zoneless mode removes zone.js.
+</Bridge>
+
+## Example
+
+```ts
+@Component({
+  selector: 'app-trade-table',
+  standalone: true,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    @for (t of trades; track t.id) {
+      <app-trade-row [trade]="t" />
+    }
+    <p>Live total: {{ total$ | async }}</p>`,
+})
+export class TradeTableComponent {
+  @Input() trades: Trade[] = [];        // parent must pass a NEW array
+  total$ = inject(TradeService).total$; // async pipe marks for check
+}
+```
+
+Older equivalent: `*ngFor="let t of trades; trackBy: byId"` with `byId = (_: number, t: Trade) => t.id`.
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Explain how Angular change detection works and when you would use OnPush.">
+- Zone.js notifies Angular after async work; default checks the whole tree.
+- OnPush checks on input reference change, events, async-pipe emissions, signal changes, or markForCheck.
+- Requires immutable updates; mutation is invisible.
+- trackBy / track for list reuse, and the React.memo and key comparison.
+- Profile first; do not apply blindly.
+</SayItOut>
+
+<Collapsible>
+- `NgZone.runOutsideAngular` keeps high-frequency events (scroll, websockets, charts) from triggering checks.
+- Zoneless Angular (experimental in 18, stable later) relies on signals and explicit notifications instead of zone.js.
+- Prefer `async` pipe or `toSignal` over manual `subscribe` plus assignment: they integrate with OnPush and clean up for you.
+- Avoid heavy method calls in templates (`{{ compute() }}`); they run every check. Use a pure pipe or `computed`.
+</Collapsible>
+
+<CheatSheet>
+
+- Zone.js patches async APIs, then Angular checks the tree.
+- OnPush triggers: new input reference, event, async pipe, signal, markForCheck.
+- Mutating arrays or objects under OnPush shows no update; use immutable copies.
+- `trackBy` / `@for track` is the `key` equivalent.
+- ExpressionChanged error means a value changed mid-check; fix data flow. Profile first.
+
+</CheatSheet>

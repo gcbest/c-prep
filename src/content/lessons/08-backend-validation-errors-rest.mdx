@@ -1,0 +1,111 @@
+---
+number: 8
+title: "Backend 3: Validation, errors, and REST design"
+minutes: 25
+day: 1
+---
+
+## Why this matters
+
+Exception handling is a candidate-reported later-round Spring Boot topic, and a risk platform lives or dies on predictable error contracts. Interviewers use "how do you validate input and report errors?" to see whether you think about clients, support staff and audit trails, not just the happy path.
+
+## Core idea
+
+A request flows: **bind** JSON into a DTO, **validate** it, run the **service**, then **map** the result or exception to an HTTP response.
+
+- `@RestController` = `@Controller` + `@ResponseBody`: return values are serialized to JSON by Jackson.
+- `@RequestBody` binds JSON; `@PathVariable` and `@RequestParam` bind URL parts.
+- **DTOs** are separate from entities. In Java 17+ a `record` is a good DTO: immutable, no boilerplate.
+- **Bean Validation** (Spring Boot 3 uses `jakarta.validation.*`, not `javax`): annotate fields with `@NotBlank`, `@Size`, `@Positive`, `@Email`; add `@Valid` on the `@RequestBody` parameter. Failure throws `MethodArgumentNotValidException` (400). For `@RequestParam`/`@PathVariable` constraints, put `@Validated` on the class; failure throws `ConstraintViolationException` (not handled as 400 by default; you must map it).
+- **One error shape.** `@RestControllerAdvice` (`@ControllerAdvice` + `@ResponseBody`) with `@ExceptionHandler` methods centralizes mapping. Spring 6 supports RFC 7807 `ProblemDetail`. Include a **correlation id** (from an MDC value or `X-Correlation-Id` header) so a client report can be found in logs. Never leak stack traces or SQL.
+- **Status codes:** 200 OK, 201 Created (+ `Location`), 204 No Content, 400 malformed or invalid, 401 unauthenticated, 403 forbidden, 404 missing, 409 conflict (duplicate, optimistic lock), 422 semantic validation (some teams use it instead of 400), 500 unexpected.
+- **Idempotency:** `GET`, `PUT`, `DELETE` are idempotent (repeating gives the same server state); `POST` is not. A repeated `DELETE` may return 404 the second time; state is still the same. Make risky `POST`s safe to retry with an `Idempotency-Key` header.
+- **Pagination:** `page`/`size` (offset, simple, drifts under inserts, slow deep pages) vs cursor/keyset (stable, fast). Spring Data gives `Pageable`/`Page`.
+- **Versioning:** URL (`/v1/...`), header or media type. Prefer additive, backward-compatible changes so you rarely need a new version.
+
+<Bridge from="FastAPI / Pydantic" breaks="Spring validation is annotation-driven on a class and runs only where you write @Valid; Pydantic validates automatically on every model construction.">
+DTO + Bean Validation is a Pydantic model. `@Valid @RequestBody` is a typed body parameter. `@RestControllerAdvice` with `@ExceptionHandler` is `app.add_exception_handler`. `ResponseEntity` is returning a `Response` with status and headers.
+</Bridge>
+
+## Example
+
+```java
+public record CreateTradeRequest(
+    @NotBlank String symbol,
+    @Positive BigDecimal amount,
+    @NotNull Side side) {}
+
+@RestController
+@RequestMapping("/api/v1/trades")
+class TradeController {
+  private final TradeService service;
+  TradeController(TradeService service) { this.service = service; }
+
+  @PostMapping
+  ResponseEntity<TradeDto> create(@Valid @RequestBody CreateTradeRequest req) {
+    TradeDto created = service.create(req);
+    return ResponseEntity.created(URI.create("/api/v1/trades/" + created.id()))
+        .body(created);
+  }
+}
+
+record ApiError(String code, String message, String correlationId,
+                List<String> details) {}
+
+@RestControllerAdvice
+class GlobalExceptionHandler {
+  @ExceptionHandler(MethodArgumentNotValidException.class)
+  ResponseEntity<ApiError> invalid(MethodArgumentNotValidException ex) {
+    var details = ex.getBindingResult().getFieldErrors().stream()
+        .map(f -> f.getField() + ": " + f.getDefaultMessage()).toList();
+    return ResponseEntity.badRequest()
+        .body(new ApiError("VALIDATION_FAILED", "Invalid request", MDC.get("correlationId"), details));
+  }
+
+  @ExceptionHandler(TradeNotFoundException.class)
+  ResponseEntity<ApiError> notFound(TradeNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(new ApiError("NOT_FOUND", ex.getMessage(), MDC.get("correlationId"), List.of()));
+  }
+
+  @ExceptionHandler(Exception.class)   // last resort: log fully, return generic
+  ResponseEntity<ApiError> unexpected(Exception ex) {
+    log.error("Unhandled", ex);
+    return ResponseEntity.status(500)
+        .body(new ApiError("INTERNAL", "Unexpected error", MDC.get("correlationId"), List.of()));
+  }
+}
+```
+
+The correlation id is put in `MDC` by a servlet filter that reads or generates `X-Correlation-Id`.
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Describe how you would design error handling for a REST API so every client gets a consistent response.">
+- Validate at the edge with DTOs and `@Valid`; keep entities out of the API.
+- Central `@RestControllerAdvice` mapping exceptions to one error shape (code, message, details, correlation id).
+- Correct status codes: 400 vs 404 vs 409 vs 500; no stack traces to clients.
+- Log the full exception server-side with the same correlation id.
+- Mention domain exceptions (checked vs unchecked) and a catch-all handler.
+</SayItOut>
+
+<Collapsible>
+- **Handler precedence:** the most specific exception type wins; `@ExceptionHandler` inside a controller beats advice.
+- **ResponseStatusException** is fine for quick cases; advice scales better.
+- **Filters vs advice:** exceptions thrown in servlet filters (for example security) never reach `@ControllerAdvice`; they need a filter-level handler or `AuthenticationEntryPoint`.
+- **Idempotent POST:** store the `Idempotency-Key` with the response and replay it on retry.
+- **PUT vs PATCH:** PUT replaces the whole resource; PATCH is partial and not guaranteed idempotent.
+- **Jackson unknown fields:** Spring Boot ignores unknown properties by default; malformed JSON throws `HttpMessageNotReadableException` (400).
+</Collapsible>
+
+<CheatSheet>
+
+- Bind to a record DTO, `@Valid` on `@RequestBody`, `jakarta.validation` annotations.
+- One `@RestControllerAdvice`, one error shape with correlation id; catch-all returns generic 500.
+- 201 + Location for create, 204 for delete, 409 for conflicts, 400/422 for invalid input.
+- GET/PUT/DELETE idempotent; POST needs an Idempotency-Key to be retry-safe.
+- Prefer cursor pagination for big or changing data; version via URL and stay additive.
+
+</CheatSheet>

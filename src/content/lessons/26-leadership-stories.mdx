@@ -1,0 +1,91 @@
+---
+number: 26
+title: "Leadership: four STAR-L stories"
+minutes: 45
+day: 3
+---
+
+## Why this matters
+
+Behavioural and leadership questions appear in most senior interviews, and later rounds are reported to include them. Four prepared stories cover most prompts, because each can be reshaped. Stories sync through a secret (unlisted) Gist, so include no confidential employer details: no client names, internal system names, figures or incident ids. Use generic terms.
+
+## Core idea
+
+Use **STAR-L**: **S**ituation (two sentences), **O**wnership (what was yours, say "I"), **A**ctions (3-4 concrete steps), **R**esult (measurable if possible), **L**earning (what you changed afterwards).
+
+Quality checklist for each story:
+
+- [ ] Under two minutes spoken, with a clear single thread.
+- [ ] "I" for your actions, "we" only for the team's result.
+- [ ] One number or concrete outcome.
+- [ ] A real trade-off or mistake, and what you learned.
+- [ ] No confidential names or figures.
+
+Write your four stories in the Story notes boxes below the lesson body.
+
+<PartBreak title="Part A: stories 1 and 2"/>
+
+### Story 1: a production incident
+
+Arc: **contain** (stop the bleeding: rollback, feature flag, failover), **communicate** (status updates to stakeholders at a steady cadence), **diagnose with evidence** (logs, metrics, diffs, not guesses), **recover safely** (verify the fix, restore data, watch dashboards), **separate root cause from contributors** (the trigger vs missing alerts, weak tests, unclear runbooks), **prevent recurrence** (tests, alerts, guardrails, blameless review).
+
+- Situation: what broke and who was affected.
+- Ownership: your role (responder, lead, author of the change).
+- Actions, Result: time to restore, impact limited.
+- Learning: the specific guardrail you added.
+
+### Story 2: a technical disagreement
+
+Pick a real disagreement about a technical choice, not a personality clash. Show that you listened and stated the other view fairly, brought evidence (a prototype, a benchmark, a risk list), agreed decision criteria, and then committed. Best endings: you were persuaded, or you disagreed and committed and it still worked. Avoid "I was right and they came round".
+
+<Practice part="A" />
+
+<PartBreak title="Part B: stories 3 and 4, why Citi, questions to ask"/>
+
+### Story 3: mentoring or raising quality
+
+Show leverage beyond your own code: a review checklist, pairing with a junior, a test strategy, a shared template. Result should be about the team (fewer defects, faster onboarding), not your effort. Describe how you gave feedback kindly and specifically.
+
+### Story 4: stopping a risky release or raising a security concern
+
+Show judgement and courage with respect. Situation: pressure to ship. Actions: you gathered evidence of the risk, quantified the impact, proposed options (delay, flag, reduced scope, extra test), and escalated through the right path. Result: the decision and what happened. Learning: you made the safe path the easy one next time. In a bank, this story shows you understand control and risk.
+
+### Why Citi ERT?
+
+Three parts: the **problem** (enterprise risk technology where correctness, auditability and resilience matter), the **fit** (React/TypeScript and Python/FastAPI production experience, SQL, a track record of owning reliability), and the **growth** (you are actively closing the Angular and Java/Spring gap and can say how). Be honest and specific rather than flattering.
+
+### Questions to ask the interviewers
+
+- How does the team work: size, release cadence, on-call?
+- What does a good first 90 days look like?
+- How are production incidents reviewed and learned from?
+- Which part of the stack is changing most (Angular version, Spring upgrades, messaging)?
+- How is quality enforced: test strategy, code review, controls?
+
+## Practice
+
+Answer aloud, using your stories. Pick a different story for each question where you can.
+
+<Practice part="B" />
+
+<SayItOut prompt="Tell your production incident story in STAR-L form in 90 seconds.">
+- Situation and your ownership in two sentences.
+- Containment first, then communication, then evidence-based diagnosis.
+- Safe recovery and verification.
+- Root cause separated from contributing factors.
+- The concrete prevention you shipped and what you learned.
+</SayItOut>
+
+<Collapsible title="Go deeper: reshaping one story for many prompts">
+A good incident story can answer "tell me about a failure", "a time under pressure", "a time you communicated with stakeholders" and "a time you improved a process". Change which part you emphasise, not the facts. Keep a two-line headline for each story so you can pick fast.
+</Collapsible>
+
+<CheatSheet>
+
+- STAR-L: Situation, Ownership, Actions, Result, Learning.
+- Incident: contain, communicate, diagnose, recover, root cause vs contributors, prevent.
+- Disagreement: evidence, criteria, commit.
+- No confidential details; the Gist is unlisted, not private.
+- Have Why Citi ERT? and your questions ready.
+
+</CheatSheet>

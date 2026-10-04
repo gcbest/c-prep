@@ -1,0 +1,109 @@
+---
+number: 6
+title: "Backend 1: How a request flows (controller -> service -> repository)"
+minutes: 20
+day: 1
+---
+
+## Why this matters
+
+Spring Boot was reported by candidates as roughly 15 minutes of some Citi screens (candidate-reported), and almost every Spring question starts from "walk me through a request". If you can name the layers and say what belongs in each, you can answer follow-ups on validation, transactions and error handling.
+
+## Core idea
+
+A request passes through three layers, each with one job.
+
+| Layer | Annotation | Owns |
+|---|---|---|
+| Controller | `@RestController` | HTTP only: routes, status codes, parsing and validating input, mapping to DTOs |
+| Service | `@Service` | Business rules, orchestration, transaction boundary (`@Transactional`) |
+| Repository | `@Repository` / `JpaRepository` | Persistence only: queries, no business decisions |
+
+- **Thin controllers.** A controller should read like: validate, call one service method, return a DTO. If it has `if` statements about business rules, move them down.
+- **DTO vs entity.** The **entity** (`@Entity`) models a table and is managed by JPA. The **DTO** is the API contract. Never return entities directly: it leaks columns (password hashes), couples your API to your schema, and lazy associations can blow up or trigger N+1 during JSON serialisation. In Java 17+ a `record` is the idiomatic DTO.
+- **Error boundary.** Services throw domain exceptions; one `@RestControllerAdvice` translates them to HTTP responses (404, 409, 422). Controllers do not catch and format errors themselves.
+- **Transactions** belong on the service method, so one request's several repository calls commit or roll back together. By default Spring rolls back on unchecked exceptions only.
+
+<Bridge from="FastAPI / Python" breaks="Spring is annotation-and-container driven; there is no function-level routing and the framework builds and wires your objects for you.">
+Controller = your path operation function. Record DTO with `jakarta.validation` annotations = Pydantic model. `@RestControllerAdvice` = `@app.exception_handler`. `JpaRepository` + entity = SQLAlchemy session/model (JPA is the spec, Hibernate the implementation). `@Service` = the plain service module or class your route calls.
+</Bridge>
+
+## Example
+
+```java
+public record CreateOrderRequest(
+    @NotBlank String accountId,
+    @Positive BigDecimal amount) {}
+
+public record OrderResponse(Long id, String accountId, BigDecimal amount) {}
+
+@RestController
+@RequestMapping("/api/orders")
+class OrderController {
+    private final OrderService service;
+    OrderController(OrderService service) { this.service = service; }
+
+    @PostMapping
+    ResponseEntity<OrderResponse> create(@Valid @RequestBody CreateOrderRequest req) {
+        OrderResponse created = service.create(req);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+}
+
+@Service
+class OrderService {
+    private final OrderRepository repo;
+    OrderService(OrderRepository repo) { this.repo = repo; }
+
+    @Transactional
+    OrderResponse create(CreateOrderRequest req) {
+        Order saved = repo.save(new Order(req.accountId(), req.amount()));
+        return new OrderResponse(saved.getId(), saved.getAccountId(), saved.getAmount());
+    }
+}
+
+interface OrderRepository extends JpaRepository<Order, Long> {}
+
+@RestControllerAdvice
+class ApiErrors {
+    @ExceptionHandler(OrderNotFoundException.class)
+    ResponseEntity<ProblemDetail> notFound(OrderNotFoundException e) {
+        return ResponseEntity.status(404).body(ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage()));
+    }
+}
+```
+
+`@Valid` failing throws `MethodArgumentNotValidException`, which Spring turns into a 400 by default.
+
+## Practice
+
+Say the flow aloud before answering: request, dispatcher, controller, service, repository, back out as DTO.
+
+<Practice />
+
+<SayItOut prompt="Walk me through what happens when a POST arrives at a Spring Boot REST endpoint, and where each kind of logic lives.">
+- Dispatcher servlet routes to the controller; Jackson deserialises the body into a request DTO; `@Valid` runs bean validation.
+- Controller stays thin and calls one service method.
+- Service holds business rules and the `@Transactional` boundary; repository does persistence only.
+- Entity is mapped to a response DTO, never returned directly.
+- Exceptions propagate to a `@RestControllerAdvice` that maps them to status codes.
+- FastAPI equivalent: path function, Pydantic model, exception handler.
+</SayItOut>
+
+<Collapsible>
+- **Filters and interceptors** run around the controller (auth, logging, correlation ids); advice handles exceptions after it.
+- **Self-invocation trap:** `@Transactional` works through a proxy, so calling a transactional method from another method of the same class bypasses it.
+- **Lazy loading** outside a transaction throws `LazyInitializationException`; mapping to a DTO inside the service avoids it.
+- **MapStruct** or hand-written mappers keep DTO mapping out of controllers.
+- **Anemic vs rich domain:** many teams keep entities simple and put rules in services; either is defensible if you can explain the tradeoff.
+</Collapsible>
+
+<CheatSheet>
+
+- Controller: HTTP only. Service: rules and transaction. Repository: persistence only.
+- DTO (record) is the contract; never expose entities.
+- Validate at the edge with `@Valid` and jakarta.validation annotations.
+- One `@RestControllerAdvice` is the error boundary.
+- `@Transactional` rolls back on unchecked exceptions by default.
+
+</CheatSheet>

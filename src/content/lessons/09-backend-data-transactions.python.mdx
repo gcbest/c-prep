@@ -1,0 +1,104 @@
+---
+number: 9
+title: "Backend 4: Database access, ORM, transactions, N+1"
+minutes: 30
+day: 1
+---
+
+## Why this matters
+
+N+1 queries, transaction boundaries and concurrency control are classic senior screening topics (candidate-reported for Spring Boot rounds, and the ideas transfer one-to-one). You already know SQLAlchemy; the goal is to explain the problems precisely and translate to JPA terms if asked.
+
+## Core idea
+
+**Session and unit of work.** A SQLAlchemy `Session` tracks loaded objects (identity map) and flushes changes on commit. One session per request, created in a dependency and closed after.
+
+**Lazy loading and N+1.** Relationships are lazy (`lazy="select"`) by default. Looping over parents and touching `parent.children` fires one query per row: 1 + N. Fixes:
+
+- `selectinload(Parent.children)`: second query with `WHERE parent_id IN (...)`. Best default for collections; no row multiplication.
+- `joinedload(...)`: single JOIN. Good for many-to-one; for collections it multiplies rows (and needs `.unique()` in 2.0 style).
+- `contains_eager` when you wrote the join yourself; `raiseload("*")` or `lazy="raise"` to make accidental lazy loads fail in tests.
+- Select only columns or DTO rows when you do not need entities.
+- Detect: `echo=True`, event listeners counting statements in tests.
+
+**Transactions.** Prefer `with session.begin():` (commit on success, rollback on any exception) or `async with session.begin():`. Rollback covers all exceptions, unlike Spring's unchecked-only default. Keep transactions short and do not hold one across network calls.
+
+**Async pitfalls.** With `AsyncSession` lazy loading is not allowed: implicit IO raises `MissingGreenlet`. So eager-load explicitly (`selectinload`), or use `await session.run_sync(...)`/`awaitable_attrs`. Using a sync `Session` with a blocking driver inside `async def` blocks the event loop: use `def` endpoints (run in a threadpool) or an async driver (`asyncpg`). Do not share one session between concurrent tasks. Set `expire_on_commit=False` for async sessions so attributes are not expired and reloaded after commit.
+
+**Isolation.** Postgres and Oracle default to read committed. Repeatable read and serializable prevent more anomalies; serializable can raise serialization failures that you must retry.
+
+**Optimistic locking:** `version_id_col` in the mapper, giving `UPDATE ... WHERE id=? AND version=?`; mismatch raises `StaleDataError`, usually returned as 409. Pessimistic: `select(...).with_for_update()`.
+
+<Bridge from="Spring / JPA" breaks="SQLAlchemy is explicit: you own session lifetime, commit and loading strategy, while Spring hides them behind a proxy and annotations.">
+`Session` is `EntityManager`; `selectinload`/`joinedload` map to `@BatchSize`/`JOIN FETCH`; `session.begin()` is `@Transactional` (but rolls back on all exceptions); `version_id_col` is `@Version`. Spring's self-invocation proxy bug has no equivalent because there is no proxy.
+</Bridge>
+
+## Example
+
+```python
+from sqlalchemy import ForeignKey, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, selectinload
+
+class Base(DeclarativeBase): pass
+
+class Portfolio(Base):
+    __tablename__ = "portfolios"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    version: Mapped[int] = mapped_column(default=1)
+    positions: Mapped[list["Position"]] = relationship(back_populates="portfolio")
+    __mapper_args__ = {"version_id_col": version}
+
+class Position(Base):
+    __tablename__ = "positions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(ForeignKey("portfolios.id"))
+    portfolio: Mapped[Portfolio] = relationship(back_populates="positions")
+
+engine = create_async_engine("postgresql+asyncpg://user:pw@db/risk")
+Session = async_sessionmaker(engine, expire_on_commit=False)
+
+async def portfolios_with_positions() -> list[Portfolio]:
+    async with Session() as session:
+        # N+1 version: select(Portfolio) then p.positions per row (raises in async)
+        stmt = select(Portfolio).options(selectinload(Portfolio.positions))
+        return list((await session.scalars(stmt)).all())
+
+async def rename(pid: int, name: str) -> None:
+    async with Session() as session, session.begin():   # commit or rollback
+        p = await session.get(Portfolio, pid)
+        p.name = name                                    # StaleDataError if version moved
+```
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Explain the N+1 problem, how you would detect it, and how you would fix it.">
+- One query for parents, then one lazy query per parent: 1 + N.
+- Detect with `echo=True` or statement counting in tests; `lazy="raise"` to fail fast.
+- Fix with `selectinload` (collections), `joinedload` (to-one), or column projections.
+- Async: lazy loads are impossible, so eager-load deliberately.
+- Spring equivalent: lazy association, fetch join, entity graph, batch size.
+</SayItOut>
+
+<Collapsible>
+- **Spring's transaction rules** if asked: `@Transactional` rolls back on unchecked exceptions only, and calling a transactional method from the same class bypasses the proxy.
+- **Dependency lifetime:** a `yield` dependency that opens the session and commits or rolls back is the usual pattern; endpoint code should not leak sessions to background tasks.
+- **Connection pool:** `pool_size`, `max_overflow`, `pool_pre_ping`; each worker process has its own pool, so total connections = workers x pool.
+- **Bulk operations:** `insert().values([...])` or `session.execute(update(...))` skips the identity map; objects in memory go stale.
+- **Alembic** for migrations; never `create_all` in production.
+- **`joinedload` plus `limit`** on collections is wrapped in a subquery by SQLAlchemy; `selectinload` avoids the issue.
+</Collapsible>
+
+<CheatSheet>
+
+- N+1: lazy attribute touched per row; fix with selectinload / joinedload, detect with echo or counters.
+- `with session.begin()` commits or rolls back on any exception.
+- AsyncSession forbids lazy loading; never block the loop with sync DB calls in `async def`.
+- Read committed default; serializable needs retry logic.
+- Optimistic locking via version_id_col, StaleDataError becomes 409; Spring: @Version and @Transactional proxy rules.
+
+</CheatSheet>

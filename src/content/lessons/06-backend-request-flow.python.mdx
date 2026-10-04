@@ -1,0 +1,99 @@
+---
+number: 6
+title: "Backend 1: How a request flows (controller -> service -> repository)"
+minutes: 20
+day: 1
+---
+
+## Why this matters
+
+Even on the Python track, Citi's stack is reported as Java/Spring, and "walk me through a request" is the generic opener for any backend (Spring was reported as about 15 minutes of some screens, candidate-reported). You already build this in FastAPI; the goal is to describe it with clean layering vocabulary and name the Spring equivalents.
+
+## Core idea
+
+Three layers, one job each:
+
+| Layer | FastAPI shape | Owns |
+|---|---|---|
+| Router / controller | path operation function | HTTP: status codes, parsing and validation, response model |
+| Service | plain class or module | business rules, orchestration, the unit-of-work / transaction boundary |
+| Repository | class over `Session` | persistence only |
+
+- **Thin routes.** Validate (Pydantic does this), call one service function, return a schema. Business `if`s do not belong in routes.
+- **Schema vs ORM model.** Keep Pydantic schemas (`response_model`, `from_attributes=True`) separate from SQLAlchemy models. Returning ORM objects couples the API to the schema, leaks columns and triggers lazy loads during serialisation.
+- **Error boundary.** Services raise domain exceptions; `@app.exception_handler` maps them to HTTP. Do not raise `HTTPException` from deep in the service: it ties business code to the transport.
+- **Transaction boundary.** One session per request, committed or rolled back once, usually in the dependency or the service, not scattered across repository methods.
+- **Async caveat.** A `def` route runs in a threadpool; an `async def` route runs on the event loop, so a blocking DB call inside it stalls every request.
+
+<Bridge from="Spring Boot (Java)" breaks="Spring wires layers by annotation and a container; FastAPI wires them with Depends and plain functions.">
+`@RestController` = router. Record DTO + `@Valid` = Pydantic model. `@Service` = service class. `JpaRepository` = SQLAlchemy session queries. `@RestControllerAdvice` = exception handlers. `@Transactional` = your session dependency's commit/rollback.
+</Bridge>
+
+## Example
+
+```python
+class OrderIn(BaseModel):
+    account_id: str = Field(min_length=1)
+    amount: Decimal = Field(gt=0)
+
+class OrderOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    account_id: str
+    amount: Decimal
+
+class OrderNotFound(Exception): ...
+
+class OrderService:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create(self, data: OrderIn) -> Order:
+        order = Order(account_id=data.account_id, amount=data.amount)
+        self.session.add(order)
+        self.session.flush()          # assigns id; commit happens at the boundary
+        return order
+
+def get_service(session: Session = Depends(get_session)) -> OrderService:
+    return OrderService(session)
+
+@router.post("/orders", response_model=OrderOut, status_code=201)
+def create_order(body: OrderIn, svc: OrderService = Depends(get_service)):
+    return svc.create(body)
+
+@app.exception_handler(OrderNotFound)
+async def not_found(request: Request, exc: OrderNotFound):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+```
+
+Validation failures return 422 automatically (Spring's default is 400).
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Walk me through a request in your backend, where each kind of logic lives, and how it maps to Spring.">
+- Route parses and validates via Pydantic, calls one service method, returns a response schema.
+- Service owns business rules and the transaction; repository does persistence only.
+- Schemas separate from ORM models; never return ORM objects.
+- Domain exceptions mapped in exception handlers, not HTTPException in services.
+- Spring mapping: controller, record DTO with `@Valid`, `@Service`, `JpaRepository`, `@RestControllerAdvice`, `@Transactional`.
+</SayItOut>
+
+<Collapsible>
+- **Middleware** (FastAPI) corresponds to servlet filters in Spring; dependencies are closer to interceptors plus injection.
+- **Sync vs async sessions:** use `AsyncSession` with `async def`, or sync `Session` with plain `def`. Mixing blocks the loop.
+- **Lazy loading and N+1:** SQLAlchemy relationships loaded lazily inside serialisation cause N+1; use `selectinload` or `joinedload`.
+- **Rollback semantics differ:** Spring `@Transactional` rolls back on unchecked exceptions by default; with SQLAlchemy you decide explicitly.
+- **Background work** after the response: `BackgroundTasks` for light work, a queue for anything that must survive a crash.
+</Collapsible>
+
+<CheatSheet>
+
+- Route thin, service holds rules and transaction, repository persists.
+- Pydantic schemas are the contract; never return ORM models.
+- Services raise domain exceptions; exception handlers map to HTTP.
+- `def` routes use the threadpool; `async def` must not block.
+- Spring map: controller, DTO, `@Service`, `JpaRepository`, `@RestControllerAdvice`.
+
+</CheatSheet>

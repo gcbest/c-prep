@@ -1,0 +1,103 @@
+---
+number: 7
+title: "Backend 2: Dependency injection and configuration"
+minutes: 25
+day: 1
+---
+
+## Why this matters
+
+Dependency injection is the foundation of Spring, and "what is IoC / what is a bean / why constructor injection" is a standard Spring Boot opener (Spring was reported as about 15 minutes of some Citi screens, candidate-reported). The single-instance-shared-by-all-threads fact also connects directly to the threading questions in later rounds.
+
+## Core idea
+
+**Inversion of Control:** you do not `new` your collaborators; the container creates objects (**beans**), wires them together and manages their lifecycle. **Dependency injection** is the mechanism: a class declares what it needs, usually as constructor parameters.
+
+- **Constructor injection is preferred.** Dependencies are `final`, the object is never half-built, it is trivial to unit test with a plain `new`, and missing beans fail at startup. Field injection (`@Autowired` on a field) hides dependencies, needs reflection in tests and permits nulls. With a single constructor, `@Autowired` is unnecessary.
+- **Scopes.** The default is **singleton**: one instance per container. `prototype` gives a new instance per injection; `request` and `session` are web scopes.
+- **Singleton beans must be stateless or thread-safe.** Spring beans are singletons by default and shared across request threads, so keep them stateless: no mutable fields holding per-request data (current user, a running total). Per-request state lives in method parameters, locals or a request-scoped bean. A prototype injected into a singleton is created once, not per call.
+- **Two candidates for one type:** `@Primary` marks the default; `@Qualifier("name")` at the injection point picks a specific one and wins over `@Primary`.
+- **Auto-configuration.** `@SpringBootApplication` = `@Configuration` + `@EnableAutoConfiguration` + `@ComponentScan`. Boot inspects the classpath and creates beans conditionally (`@ConditionalOnClass`, `@ConditionalOnMissingBean`): add a JDBC driver plus `spring.datasource.*` and you get a `DataSource`. Define your own bean of that type and the auto one backs off.
+- **Configuration.** `application.yml` holds defaults. **Profiles** (`application-prod.yml`, activated with `spring.profiles.active` or `SPRING_PROFILES_ACTIVE`) override per environment. Bind groups of properties to a typed class with `@ConfigurationProperties`. **Secrets come from the environment** (or a secret manager), never from a committed file: `password: ${DB_PASSWORD}`.
+
+<Bridge from="FastAPI / Python" breaks="Spring builds the whole object graph at startup from annotations, and beans are long-lived shared instances; FastAPI resolves Depends per request.">
+`@Service` bean + constructor injection ~ `Depends(get_service)`. `@Bean` factory method ~ a provider function. `@Primary`/`@Qualifier` ~ choosing which provider function you `Depends` on. Profiles + `application.yml` ~ pydantic-settings reading `.env` and environment variables. Mocking a bean with `@MockBean` ~ `app.dependency_overrides`. Pydantic ~ DTO + validation; SQLAlchemy ~ JPA; pytest ~ JUnit; `unittest.mock` ~ Mockito.
+</Bridge>
+
+## Example
+
+```java
+@Service
+class PricingService {
+    private final RateClient rates;          // injected, final
+    private final PricingProperties props;
+
+    PricingService(@Qualifier("primaryRates") RateClient rates, PricingProperties props) {
+        this.rates = rates;
+        this.props = props;
+    }
+
+    BigDecimal price(BigDecimal notional) {   // stateless: only params and locals
+        return notional.multiply(rates.current()).add(props.fee());
+    }
+}
+
+@ConfigurationProperties(prefix = "pricing")
+record PricingProperties(BigDecimal fee) {}   // enable via @ConfigurationPropertiesScan
+
+@Configuration
+class RateConfig {
+    @Bean @Primary RateClient liveRates() { return new HttpRateClient(); }
+    @Bean("primaryRates") RateClient primaryRates() { return new HttpRateClient(); }
+    @Bean RateClient fallbackRates() { return new StaticRateClient(); }
+}
+```
+
+```yaml
+# application.yml
+pricing:
+  fee: 1.50
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/risk
+    password: ${DB_PASSWORD}        # from the environment
+---
+spring:
+  config:
+    activate:
+      on-profile: prod
+pricing:
+  fee: 2.00
+```
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Explain dependency injection in Spring, why singleton beans must be stateless, and how you would configure per-environment settings and secrets.">
+- IoC: the container creates and wires beans; constructor injection preferred (final fields, testable, fails fast).
+- Beans are singletons by default and shared across request threads, so keep them stateless; per-request data stays in parameters or request scope.
+- `@Primary` for the default, `@Qualifier` to pick explicitly.
+- Auto-configuration is conditional on the classpath and on missing beans.
+- `application.yml` plus profiles per environment; secrets from environment variables or a secret manager.
+- FastAPI: Depends, dependency_overrides, pydantic-settings.
+</SayItOut>
+
+<Collapsible>
+- **Circular dependencies** fail at startup with constructor injection (Boot 2.6+ forbids them by default); that is a design signal, not something to hide with field injection.
+- **Property precedence:** command-line args and environment variables override `application.yml`; relaxed binding maps `DB_PASSWORD` to `db.password`.
+- **Testing:** `@SpringBootTest` loads the full context; `@WebMvcTest` slices to the web layer with `@MockBean` (`@MockitoBean` in Spring Framework 6.2+/Boot 3.4+).
+- **Lifecycle hooks:** `@PostConstruct` and `@PreDestroy` (jakarta.annotation in Boot 3).
+- **Thread-safety if you must hold state:** immutable fields, `ConcurrentHashMap`, atomic types; avoid `synchronized` on hot paths.
+</Collapsible>
+
+<CheatSheet>
+
+- Constructor injection: final fields, testable, fail fast.
+- Beans are singletons shared across threads: keep them stateless.
+- `@Primary` = default candidate; `@Qualifier` = explicit choice and wins.
+- Auto-configuration is conditional and backs off when you define your own bean.
+- `application.yml` + profiles per environment; secrets from env vars, never committed.
+- FastAPI: Depends, `dependency_overrides`, pydantic-settings.
+
+</CheatSheet>

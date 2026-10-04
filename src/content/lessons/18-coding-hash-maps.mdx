@@ -1,0 +1,94 @@
+---
+number: 18
+title: "Coding 1: Hash-map aggregation"
+minutes: 30
+day: 2
+---
+
+## Why this matters
+
+Candidate-reported Citi screens have included a coding or log/event counting problem, and Karat-style screens are candidate-reported as well. Most of these reduce to one move: walk the data once and keep a `Map`. Doing it with a calm, repeatable routine matters as much as the answer.
+
+## Core idea
+
+**The routine, out loud:** restate, clarify, example, edge cases, approach, complexity, code, test.
+
+1. **Restate** the problem in your own words.
+2. **Clarify:** input size, duplicates, empty input, case, ordering of the output, ties.
+3. **Example:** work one small case by hand.
+4. **Edge cases:** empty, single item, all equal, negatives.
+5. **Approach and complexity** before you type: "one pass, a map, O(n) time and space."
+6. **Code**, then **test** by tracing your example, then the edge cases.
+
+Use the language you are fastest in (usually allowed; confirm at the start). Think aloud: silence reads as being stuck, and narrated reasoning earns partial credit.
+
+Two patterns cover most of this lesson:
+
+- **Counting:** `counts.set(x, (counts.get(x) ?? 0) + 1)`. Answers "how many", "most frequent", "seen before".
+- **Grouping by canonical key:** compute a key that is identical for everything in the same group, then push into `map.get(key)`. Anagrams share a sorted-letters key.
+
+<Bridge from="TypeScript / Python" breaks="Java HashMap needs merge or computeIfAbsent instead of a default; Python has Counter and defaultdict.">
+`Map` in TS is `dict` in Python and `HashMap` in Java. Average O(1) get and set, no useful ordering guarantee beyond insertion order in JS and Python. Sets are maps without values.
+</Bridge>
+
+## Example
+
+Contains Duplicate (LeetCode 217), Group Anagrams (49), Top K Frequent (347):
+
+```ts
+const hasDup = (xs: number[]) => new Set(xs).size !== xs.length;
+
+function groupAnagrams(words: string[]): string[][] {
+  const groups = new Map<string, string[]>();
+  for (const w of words) {
+    const key = [...w].sort().join('');      // canonical key
+    const g = groups.get(key);
+    if (g) g.push(w); else groups.set(key, [w]);
+  }
+  return [...groups.values()];
+}
+
+function topK(nums: number[], k: number): number[] {
+  const counts = new Map<number, number>();
+  for (const n of nums) counts.set(n, (counts.get(n) ?? 0) + 1);
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0] - b[0])   // frequency desc, then value
+    .slice(0, k)
+    .map(([n]) => n);
+}
+```
+
+Complexity: duplicates O(n). Anagrams O(n * m log m) for word length m (a 26-slot count key makes it O(n * m)). Top K by sort is O(u log u) for u unique values; a heap gives O(u log k) and bucket sort gives O(n). State the simple one first, then offer the improvement.
+
+## Practice
+
+Read each prompt carefully: the exercises specify tie-breaking and ordering.
+
+<CodeExercise ids={[1, 2, 3]} />
+
+<Practice />
+
+<SayItOut prompt="Walk through how you would approach Group Anagrams in an interview, from restating to complexity.">
+- Restate and clarify: case, empty strings, whether output order matters.
+- Insight: anagrams share a canonical key (sorted letters or a letter-count tuple).
+- Map from key to list, one pass; return the values.
+- Complexity: O(n * m log m) time, O(n * m) space; mention the count-key improvement.
+- Test with an example and the empty-string edge case.
+</SayItOut>
+
+<Collapsible>
+- **Count-key for anagrams:** a 26-length array joined as a string avoids sorting; with Unicode input, sort instead.
+- **Heap or bucket for Top K:** buckets indexed by frequency give O(n); JS has no built-in heap, so say so and describe it.
+- **Mutating while iterating** a map and using objects as keys (`{}` stringifies keys, `Map` keeps types) are common bugs.
+- If stuck, solve brute force first, say its cost, then optimise.
+</Collapsible>
+
+<CheatSheet>
+
+- Routine: restate, clarify, example, edge cases, approach, complexity, code, test.
+- Use your fastest language; think aloud.
+- Counting: `get(x) ?? 0` plus one.
+- Grouping: canonical key to list.
+- Give the simple solution and complexity first, then the optimisation.
+
+</CheatSheet>

@@ -1,0 +1,133 @@
+---
+number: 8
+title: "Backend 3: Validation, errors, and REST design"
+minutes: 25
+day: 1
+---
+
+## Why this matters
+
+Exception handling is a candidate-reported later-round topic, and the Spring vocabulary (`@Valid`, `@ControllerAdvice`) maps directly onto what you already do in FastAPI. Your edge is explaining the design (one error contract, correlation ids, correct status codes) rather than the framework syntax.
+
+## Core idea
+
+Request flow: parse and **validate** into a Pydantic model, run the **service**, then **map** result or exception to a response.
+
+- **Pydantic v2** models are your DTOs and validators: `Field(gt=0)`, `constr`, `field_validator`, `model_validator`. Failure raises `RequestValidationError`, which FastAPI turns into a 422 with its own default shape.
+- **Override the default shape** with `@app.exception_handler(RequestValidationError)` so validation errors match every other error. Also handle `StarletteHTTPException` (so 404 and 405 from routing share the shape) and a catch-all `Exception` handler for 500.
+- **`response_model`** filters and serializes output (drop internal fields such as hashed passwords); use separate `Create`, `Update`, `Read` models. `response_model_exclude_unset` helps PATCH.
+- **Domain exceptions** (`class TradeNotFound(Exception)`) raised in the service and mapped in handlers keep HTTP out of business logic. `HTTPException` is fine at the edge.
+- **Correlation id:** middleware reads `X-Correlation-Id` or generates a UUID, stores it in a `contextvars.ContextVar`, adds it to logs and every error body and response header.
+- **Status codes:** 201 + `Location` for create, 204 delete, 400/422 invalid, 401 vs 403, 404, 409 conflict, 500. Set with `status_code=` or `Response`.
+- **Idempotency:** GET, PUT, DELETE idempotent, POST not. Retry-safe POST via `Idempotency-Key` stored with the response.
+- **Pagination:** offset (`limit`/`offset`, simple, drifts, slow when deep) vs keyset/cursor (`WHERE id > :last ORDER BY id LIMIT n`). Return total only if cheap.
+- **Versioning:** `APIRouter(prefix="/v1")`; keep changes additive.
+
+<Bridge from="Spring Boot" breaks="Spring validation runs only where @Valid is written and uses jakarta annotations; Pydantic validates on construction, and FastAPI's default 422 differs from Spring's 400.">
+`@RestControllerAdvice` is `add_exception_handler`; a record DTO with `@Valid` is a Pydantic model; `ResponseEntity` is `JSONResponse` or a `Response` parameter; `ProblemDetail` is a hand-rolled RFC 7807 model.
+</Bridge>
+
+## Example
+
+```python
+import uuid, logging
+from contextvars import ContextVar
+from decimal import Decimal
+from fastapi import FastAPI, Request, Response, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+log = logging.getLogger(__name__)
+correlation_id: ContextVar[str] = ContextVar("correlation_id", default="-")
+app = FastAPI()
+
+class CreateTrade(BaseModel):
+    symbol: str = Field(min_length=1)
+    amount: Decimal = Field(gt=0)
+
+class TradeRead(BaseModel):
+    id: int
+    symbol: str
+    amount: Decimal
+
+class TradeNotFound(Exception):
+    def __init__(self, trade_id: int):
+        self.trade_id = trade_id
+
+def error(status_code: int, code: str, message: str, details=None):
+    return JSONResponse(
+        status_code=status_code,
+        content={"code": code, "message": message,
+                 "correlationId": correlation_id.get(), "details": details or []},
+    )
+
+@app.middleware("http")
+async def add_correlation_id(request: Request, call_next):
+    cid = request.headers.get("X-Correlation-Id", str(uuid.uuid4()))
+    token = correlation_id.set(cid)
+    try:
+        response = await call_next(request)
+    finally:
+        correlation_id.reset(token)
+    response.headers["X-Correlation-Id"] = cid
+    return response
+
+@app.exception_handler(RequestValidationError)
+async def on_invalid(request: Request, exc: RequestValidationError):
+    details = [f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()]
+    return error(400, "VALIDATION_FAILED", "Invalid request", details)
+
+@app.exception_handler(StarletteHTTPException)
+async def on_http(request: Request, exc: StarletteHTTPException):
+    return error(exc.status_code, "HTTP_ERROR", str(exc.detail))
+
+@app.exception_handler(TradeNotFound)
+async def on_not_found(request: Request, exc: TradeNotFound):
+    return error(404, "NOT_FOUND", f"Trade {exc.trade_id} not found")
+
+@app.exception_handler(Exception)
+async def on_unexpected(request: Request, exc: Exception):
+    log.exception("Unhandled")          # full detail server-side only
+    return error(500, "INTERNAL", "Unexpected error")
+
+@app.post("/v1/trades", response_model=TradeRead, status_code=status.HTTP_201_CREATED)
+async def create(body: CreateTrade, response: Response):
+    trade = TradeRead(id=1, symbol=body.symbol, amount=body.amount)
+    response.headers["Location"] = f"/v1/trades/{trade.id}"
+    return trade
+```
+
+Pitfall: `BaseHTTPMiddleware` and the `Exception` handler interact subtly. Unhandled exceptions are processed by Starlette's `ServerErrorMiddleware`, which sits outside user middleware, so a 500 body may lack the correlation header unless you add it there too.
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Describe how you would design error handling for a REST API so every client gets a consistent response.">
+- Validate at the edge with Pydantic models; separate Create/Read models and `response_model`.
+- Central exception handlers (validation, HTTP, domain, catch-all) emitting one error shape with a correlation id.
+- Correct status codes: 400/422 vs 404 vs 409 vs 500; no stack traces to clients.
+- Log the full exception with the same correlation id.
+- Spring equivalent: `@RestControllerAdvice` plus `@Valid`.
+</SayItOut>
+
+<Collapsible>
+- **Default 422:** FastAPI uses 422 for validation; changing to 400 is a contract decision, so do it deliberately and document it.
+- **Handler lookup** walks the exception MRO, so the most specific class wins.
+- **`HTTPException` vs Starlette's:** register the Starlette one to also catch router-level 404/405.
+- **Pydantic v2 vs v1:** `field_validator` replaces `validator`; `model_config` replaces `class Config`; `model_dump` replaces `dict`.
+- **Idempotent POST:** store key plus response with a unique constraint; a concurrent duplicate hits the constraint and returns the stored response.
+- **Background tasks** run after the response; errors there never reach handlers.
+</Collapsible>
+
+<CheatSheet>
+
+- Pydantic = DTO + validation; separate Create/Read models; `response_model` filters output.
+- Override handlers for RequestValidationError, Starlette HTTPException, domain errors, and Exception.
+- Correlation id via middleware plus ContextVar, in logs, body and header.
+- 201 + Location, 204, 404, 409; GET/PUT/DELETE idempotent, POST needs Idempotency-Key.
+- Cursor pagination for big data; router prefix versioning, additive changes.
+
+</CheatSheet>

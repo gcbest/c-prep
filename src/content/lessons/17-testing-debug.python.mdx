@@ -1,0 +1,160 @@
+---
+number: 17
+title: "Testing 3: Debug a failing unit test (Java/JUnit or Python/pytest)"
+minutes: 35
+day: 2
+---
+
+## Why this matters
+
+A seeded failing test is candidate-reported for Citi-style screens (the Karat format), and it is the most realistic unit-test task you will get. The interviewer watches your **loop**, not just the final line. You already use pytest; the goal is to apply the same loop deliberately and to translate Java/JUnit terms if asked.
+
+## Core idea
+
+**The loop.** Read the test → reproduce it → inspect the code the test exercises → make the smallest fix → rerun the whole suite → explain the root cause out loud. Narrate each step; silence reads as guessing.
+
+**Six bug types to recognise.** Nearly every seeded failure is one of these:
+
+| Symptom | Usual cause |
+|---|---|
+| A `set`/`dict` collapses rows, or two different objects count as equal | `__eq__` without `__hash__`, keyed on the wrong field, or an unhashable type |
+| Totals are off by a cent, or `0.1 + 0.2 != 0.3` | `float` for money instead of `Decimal` |
+| A loop misses the last item or keeps one extra | off-by-one (`<` vs `<=`, `len` vs `len - 1`) |
+| Passes alone, fails in the full suite | shared mutable state: a module-level dict, a mutable default argument, or a cached singleton |
+| `TypeError`/`AttributeError` on real input | `None` or an empty list not handled |
+| Sorting looks wrong for numbers or ties | a key/comparator inconsistent with equality, or sorting numbers as strings |
+
+<Callout tone="warn">Do not rewrite the function. Make the smallest change that makes the failing test pass, then explain why the original was wrong. A common follow-up is "now break the test on purpose and show me you understand it".</Callout>
+
+## Example
+
+The lab resolves duplicate trade reports. A trade is identified by its `id`; `symbol` is just the instrument. One test fails because `dedupe` keys on the symbol only, so two different AAPL trades collapse into one.
+
+<FileViewer
+  files={[
+    {
+      name: 'recon/trade.py',
+      code: `from dataclasses import dataclass
+from decimal import Decimal
+
+
+@dataclass(frozen=True)
+class Trade:
+    """One executed trade. A trade is identified by its id; symbol is the instrument."""
+
+    id: str
+    symbol: str
+    quantity: int
+    price: Decimal
+
+    def notional(self) -> Decimal:
+        return self.price * self.quantity`,
+    },
+    {
+      name: 'recon/reconciler.py',
+      code: `from decimal import Decimal
+
+from .trade import Trade
+
+
+def dedupe(trades: list[Trade] | None) -> list[Trade]:
+    """Remove duplicate trade reports (same trade id and symbol), keeping the first one seen."""
+    if not trades:
+        return []
+    seen: dict[str, Trade] = {}
+    for t in trades:
+        # BUG: the key is the symbol only, so two different trades in AAPL collapse into one.
+        seen.setdefault(t.symbol, t)
+    return list(seen.values())
+
+
+def total_notional(trades: list[Trade] | None) -> Decimal:
+    return sum((t.notional() for t in dedupe(trades)), Decimal("0"))`,
+    },
+    {
+      name: 'tests/test_reconciler.py',
+      code: `from decimal import Decimal
+
+from recon.reconciler import dedupe, total_notional
+from recon.trade import Trade
+
+
+def trade(id, symbol, qty, price):
+    return Trade(id, symbol, qty, Decimal(price))
+
+
+def test_removes_exact_duplicate_reports():
+    trades = [trade("T1", "AAPL", 10, "5.00"), trade("T1", "AAPL", 10, "5.00")]
+    assert len(dedupe(trades)) == 1
+
+
+def test_none_and_empty_give_empty_result():
+    assert dedupe(None) == []
+    assert dedupe([]) == []
+
+
+# FAILS until the dedupe key is fixed: assert 2 == 3
+def test_keeps_distinct_trades_in_the_same_symbol():
+    trades = [
+        trade("T1", "AAPL", 10, "5.00"),
+        trade("T2", "AAPL", 20, "5.50"),
+        trade("T3", "MSFT", 5, "10.00"),
+    ]
+    assert len(dedupe(trades)) == 3
+
+
+def test_total_notional_sums_distinct_trades():
+    trades = [
+        trade("T1", "AAPL", 10, "5.00"),
+        trade("T2", "AAPL", 20, "5.50"),
+        trade("T2", "AAPL", 20, "5.50"),
+    ]
+    assert total_notional(trades) == Decimal("160.00")`,
+    },
+  ]}
+  steps={[
+    { title: "1. Read the failing test first", body: "The test name is the specification: test_keeps_distinct_trades_in_the_same_symbol expects 3 but gets 2, so two distinct AAPL trades are being merged. Start from the test, not the code." },
+    { title: "2. Reproduce before touching anything", body: "Run pytest. Confirm you see the same two failures. A bug you cannot reproduce is a bug you cannot claim to have fixed." },
+    { title: "3. Inspect only the exercised code", body: "dedupe uses seen.setdefault(t.symbol, t). With T1 and T2 both in AAPL, the second is dropped. total_notional fails for the same reason." },
+    { title: "4. Make the smallest fix", body: "Key the dict on the trade id: seen.setdefault(t.id, t). If the rule is really (id, symbol), key on that tuple. Do not rewrite the function." },
+    { title: "5. Rerun the whole suite", body: "Run pytest again. The two failing tests now pass, and the exact-duplicate and None/empty tests still pass." },
+    { title: "6. Explain the root cause", body: "The dedup key encoded the wrong identity. The fix aligns the key with the domain definition of a trade. Add one test for the same id with a different symbol if that can happen." },
+  ]}
+/>
+
+<Callout>
+Prefer running the real thing? The same lab ships in the repo: `pip install -r labs/python-debug/requirements.txt && pytest` from `labs/python-debug`. The JUnit twin is at `labs/java-debug` (`mvn test`).
+</Callout>
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="You are handed a small Python repo with one failing pytest test. Talk me through how you find and fix the bug.">
+- Read the test first and restate what it expects and why.
+- Reproduce with `pytest` before changing anything; confirm the same failure.
+- Inspect only the code the test exercises; hold one hypothesis at a time.
+- Make the smallest fix (here the `dict` key is the wrong identity), not a rewrite.
+- Rerun the whole suite, and explain the root cause: the dedup key did not match the domain's definition of a trade.
+- Say what test you would add next.
+</SayItOut>
+
+<Collapsible>
+- **pytest essentials:** plain `assert`, fixtures with `@pytest.fixture`, `pytest.raises`, `pytest.mark.parametrize`; `pytest -k name` to run one test, `-x` to stop at the first failure.
+- **Fixing order/state leakage:** run one test alone vs the suite, shuffle order (`pytest-randomly`), and reset module state in a fixture. Never use a mutable default argument such as `def f(items=[])`.
+- **dataclass hashing:** `@dataclass(frozen=True)` gives `__eq__` and `__hash__`; a mutable dataclass is unhashable unless you set `eq=False`, so it cannot be a dict key.
+- **Decimal, not float:** `Decimal("5.50") * 2` is exact; `0.1 + 0.2 != 0.3`. Always build `Decimal` from a string.
+- **Java translation, if asked:** JUnit 5 is `@Test` + `assertEquals`; Mockito is `unittest.mock`; `@SpringBootTest` slices are like a fixture that boots part of the app.
+- **TestClient for FastAPI:** `from fastapi.testclient import TestClient` and `app.dependency_overrides` to fake a dependency.
+</Collapsible>
+
+<CheatSheet>
+
+- Loop: read test → reproduce → inspect → smallest fix → rerun all → explain.
+- Shared mutable state is the classic "passes alone, fails together" bug.
+- `__eq__` without `__hash__`, or a wrong key field, collapses dict/set rows.
+- Money uses `Decimal` (from a string), never `float`.
+- Off-by-one and comparator bugs: check the boundary and the tie.
+- The same lab ships as pytest (Python) and Maven (Java).
+
+</CheatSheet>

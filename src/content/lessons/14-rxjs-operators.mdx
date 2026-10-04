@@ -1,0 +1,140 @@
+---
+number: 14
+title: "RxJS: operators that matter"
+minutes: 30
+day: 2
+---
+
+## Why this matters
+
+Angular's `HttpClient`, router and forms all return Observables, so RxJS is part of reading any Angular codebase. Candidate-reported Angular screens have included RxJS questions; the flattening operators and unsubscription are the usual targets.
+
+## Core idea
+
+An Observable is a lazy description of a stream of values. Nothing happens until `subscribe`. Operators go inside `pipe(...)`. The decisions that matter are about **what to do when a new outer value arrives while an inner request is still running**.
+
+<Bridge from="React / TypeScript / FastAPI" breaks="Observables are lazy, can emit many values, and are cancellable. A Promise starts immediately, resolves once, and cannot be cancelled.">
+Think of a stream of events as an async iterator you can transform. Cancelling the previous request is what `AbortController` does in `fetch`; `switchMap` does it for you.
+</Bridge>
+
+| Operator | New outer value arrives while inner is running | Use for |
+|---|---|---|
+| `switchMap` | cancel the old inner, start the new | type-ahead, route-param loads |
+| `exhaustMap` | ignore the new one | submit buttons, login |
+| `concatMap` | queue it, run one at a time in order | ordered writes |
+| `mergeMap(fn, n)` | run in parallel, up to `n` at once | bulk uploads, bounded fan-out |
+
+Pick the scenario, then reveal the answer.
+
+<Reveal label="Search box: user types fast, only the latest result should show">
+
+`switchMap`. Each keystroke cancels the in-flight request, so a slow old response can never overwrite a newer one. Pair with `debounceTime(300)` and `distinctUntilChanged()`.
+
+</Reveal>
+
+<Reveal label="Save button: user double-clicks, only one POST should be sent">
+
+`exhaustMap`. Clicks during the running request are ignored. Also disable the button for UX; do not rely on UI alone.
+
+</Reveal>
+
+<Reveal label="Edits to one record must reach the server in the order made">
+
+`concatMap`. Each save waits for the previous to finish. `mergeMap` could reorder them; `switchMap` would cancel earlier writes (the server may still have processed them).
+
+</Reveal>
+
+<Reveal label="Upload 200 files but never more than 4 requests at once">
+
+`mergeMap(file => upload(file), 4)`. The second argument is the concurrency limit.
+
+</Reveal>
+
+<Reveal label="Where does catchError go in a search stream?">
+
+**Inside** the inner observable: `switchMap(q => http.get(...).pipe(catchError(() => of([]))))`. An error that reaches the outer stream terminates it, and the search box stops working forever. Inside, only that one request fails and the outer stream lives on.
+
+</Reveal>
+
+<Reveal label="Hot vs cold">
+
+**Cold**: each subscriber triggers its own execution (`http.get` fires one request per subscribe). **Hot**: the source produces regardless of subscribers (DOM events, a `Subject`). Use `shareReplay({ bufferSize: 1, refCount: true })` to share one cold HTTP call between several subscribers or `async` pipes.
+
+</Reveal>
+
+<Reveal label="Why are nested subscribes a bug?">
+
+An inner `subscribe` inside an outer one has no cancellation, no ordering policy, no error propagation and no cleanup: old inner subscriptions leak and race each other. Replace with a flattening operator and one outer subscription.
+
+</Reveal>
+
+<Reveal label="How do you avoid leaks?">
+
+Prefer the `async` pipe (it unsubscribes for you). Otherwise use `takeUntilDestroyed()` (Angular 16+, inside an injection context, or pass a `DestroyRef`), or `takeUntil(this.destroy$)` in older code. `HttpClient` calls complete on their own, but long-lived streams (`valueChanges`, `interval`, store selectors) do not.
+
+</Reveal>
+
+## Example
+
+```ts
+@Component({ /* ... */ })
+export class SearchComponent {
+  private http = inject(HttpClient);
+  query = new FormControl('', { nonNullable: true });
+
+  results$ = this.query.valueChanges.pipe(
+    debounceTime(300),
+    distinctUntilChanged(),
+    switchMap(q =>
+      this.http.get<Hit[]>(`/api/search?q=${encodeURIComponent(q)}`).pipe(
+        catchError(() => of([] as Hit[])),   // inside: outer stream survives
+      ),
+    ),
+  );
+}
+```
+
+```html
+<li *ngFor="let h of results$ | async">{{ h.name }}</li>
+```
+
+The React equivalent is a `useEffect` whose cleanup cancels the previous request:
+
+```ts
+useEffect(() => {
+  const ctrl = new AbortController();
+  fetch(`/api/search?q=${q}`, { signal: ctrl.signal })
+    .then(r => r.json()).then(setHits)
+    .catch(e => { if (e.name !== 'AbortError') setError(e); });
+  return () => ctrl.abort();   // plays the role of switchMap + unsubscribe
+}, [q]);
+```
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="A search box fires a request per keystroke and sometimes shows stale results. Fix it with RxJS and explain your operator choices.">
+- Debounce and distinctUntilChanged to cut requests.
+- switchMap cancels the previous request, so stale responses cannot win.
+- catchError inside the inner observable so one failure does not kill the stream.
+- async pipe or takeUntilDestroyed for cleanup.
+- Contrast with exhaustMap (ignore) and concatMap (queue).
+</SayItOut>
+
+<Collapsible>
+- `combineLatest` waits for every source to emit once, then emits on any change; `forkJoin` waits for all to complete (good for parallel one-shot HTTP calls); `withLatestFrom` samples another stream.
+- `BehaviorSubject` holds a current value and replays it to new subscribers; plain `Subject` does not.
+- `retry({ count: 3, delay: 1000 })` resubscribes to the source on error; place it before `catchError`.
+- `toSignal` and `toObservable` bridge RxJS and Angular signals.
+</Collapsible>
+
+<CheatSheet>
+
+- switchMap cancels old (type-ahead); exhaustMap ignores new (submit); concatMap queues (ordered writes); mergeMap(fn, n) is bounded parallel.
+- catchError goes inside the inner observable so the outer stream survives.
+- Cold: one execution per subscriber; hot: shared source. shareReplay shares a cold one.
+- Never nest subscribes; flatten instead.
+- Unsubscribe with the async pipe, takeUntilDestroyed or takeUntil.
+
+</CheatSheet>

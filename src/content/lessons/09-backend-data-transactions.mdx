@@ -1,0 +1,104 @@
+---
+number: 9
+title: "Backend 4: Database access, ORM, transactions, N+1"
+minutes: 30
+day: 1
+---
+
+## Why this matters
+
+Spring Data JPA is the usual persistence layer in Spring Boot services, and the N+1 problem and `@Transactional` pitfalls are classic senior screening topics (candidate-reported for Spring Boot rounds). Your SQL skills make you better placed than most: think "what SQL does this generate?"
+
+## Core idea
+
+**JPA** is the spec, **Hibernate** the implementation, **Spring Data** repositories sit on top. An `@Entity` maps to a table; the `EntityManager` (persistence context) tracks loaded entities and flushes changes at commit (**dirty checking**: you do not call `save` for managed entities).
+
+**Lazy vs eager.** `@OneToMany` and `@ManyToMany` default to LAZY; `@ManyToOne` and `@OneToOne` default to EAGER. Prefer LAZY everywhere and fetch what you need per query. Touching a lazy association outside a session gives `LazyInitializationException`.
+
+**N+1.** One query loads N parents, then each lazy `parent.getChildren()` fires another query: 1 + N round trips. Spot it with SQL logging (`spring.jpa.show-sql` or `org.hibernate.SQL` at DEBUG) or by counting statements. Fixes:
+
+- `JOIN FETCH` in JPQL, or `@EntityGraph` on a repository method: one joined query.
+- Batch fetching (`@BatchSize`, `hibernate.default_batch_fetch_size`): loads children for many parents with `IN (...)`.
+- A DTO projection that selects only needed columns.
+- Pitfall: join-fetching a collection with pagination makes Hibernate paginate in memory; fetch the page of ids first or use batch size.
+
+**`@Transactional`** is implemented by a **proxy** around the bean.
+
+- Put it on service methods, not controllers or repositories.
+- **Rollback rules:** rolls back on unchecked exceptions (`RuntimeException`, `Error`) by default; checked exceptions **commit** unless you set `rollbackFor`.
+- **Self-invocation bypasses the proxy:** `this.other()` inside the same class ignores the annotation on `other()`. Move it to another bean.
+- Only public methods through the proxy count; `readOnly = true` is a hint that skips dirty checking.
+- Propagation: `REQUIRED` (default, join existing) vs `REQUIRES_NEW` (suspend and start new).
+- Swallowing the exception inside the method means no rollback.
+
+**Isolation basics:** read committed (default in Postgres and Oracle) prevents dirty reads; repeatable read prevents non-repeatable reads; serializable prevents phantoms at a concurrency cost.
+
+**Optimistic locking:** add `@Version long version` to the entity. Updates become `UPDATE ... WHERE id=? AND version=?`; if another transaction won, Hibernate throws `OptimisticLockException` (Spring: `ObjectOptimisticLockingFailureException`), usually mapped to 409. Pessimistic locking (`SELECT ... FOR UPDATE`) blocks instead.
+
+<Bridge from="FastAPI / SQLAlchemy" breaks="Hibernate hides the session and flushes implicitly through a transaction proxy; SQLAlchemy makes the session and commit explicit.">
+`EntityManager` is a SQLAlchemy `Session`. `JOIN FETCH` / `@EntityGraph` is `joinedload`/`selectinload`; `@BatchSize` is close to `selectinload`. `@Transactional` is `with session.begin():` and `@Version` is `version_id_col`.
+</Bridge>
+
+## Example
+
+```java
+@Entity
+class Portfolio {
+  @Id @GeneratedValue Long id;
+  String name;
+  @Version long version;
+  @OneToMany(mappedBy = "portfolio", fetch = FetchType.LAZY)
+  List<Position> positions = new ArrayList<>();
+}
+
+interface PortfolioRepository extends JpaRepository<Portfolio, Long> {
+  List<Portfolio> findAll();                       // then p.getPositions() per row = N+1
+
+  @Query("select distinct p from Portfolio p join fetch p.positions")
+  List<Portfolio> findAllWithPositions();          // one query
+
+  @EntityGraph(attributePaths = "positions")
+  Optional<Portfolio> findById(Long id);           // graph applied to the built-in method
+}
+
+@Service
+class RebalanceService {
+  @Transactional(rollbackFor = ValidationException.class)  // checked exception
+  public void rebalance(long id) { /* load, mutate, dirty checking flushes */ }
+
+  public void batch(List<Long> ids) {
+    ids.forEach(this::rebalance);   // self-invocation: NO transaction applied
+  }
+}
+```
+
+## Practice
+
+<Practice />
+
+<SayItOut prompt="Explain the N+1 problem, how you would detect it, and how you would fix it.">
+- One query for parents, then one lazy query per parent: 1 + N.
+- Detect with SQL logging or statement counts in tests.
+- Fixes: fetch join, entity graph, batch fetching, or a DTO projection.
+- Mention the pagination plus collection join-fetch trap.
+- FastAPI equivalent: `selectinload` / `joinedload`.
+</SayItOut>
+
+<Collapsible>
+- **Open Session in View** is on by default in Spring Boot and keeps the session open through view rendering, hiding lazy loads in controllers; many teams disable it (`spring.jpa.open-in-view=false`).
+- **equals/hashCode on entities** (candidate-reported topic): do not use mutable fields or a generated id that is null before persist carelessly; prefer a business key or a stable id strategy.
+- **Cascade and orphanRemoval** control child lifecycle; `mappedBy` marks the non-owning side.
+- **Dirty checking** means a mutated managed entity is updated without `save`.
+- **Retries** on optimistic failures should re-read and re-apply, not blindly resubmit.
+- **Cartesian product:** join-fetching two collections can multiply rows; use `Set` or separate queries.
+</Collapsible>
+
+<CheatSheet>
+
+- LAZY by default for collections; eager `@ManyToOne` is a hidden cost.
+- N+1 = one parent query plus one lazy query per row; fix with JOIN FETCH, EntityGraph, batch size, or projection.
+- @Transactional: proxy-based, rolls back on unchecked only, self-invocation bypasses it.
+- Read committed is the common default; serializable costs concurrency.
+- @Version gives optimistic locking; conflict becomes OptimisticLockException, map to 409.
+
+</CheatSheet>
