@@ -35,12 +35,25 @@ export default function App() {
   const focusDefault = recordValue<boolean>(state.settings, 'focusMode', true) ?? true;
   const [focus, setFocus] = useState(focusDefault);
   const track = recordValue<'java' | 'python'>(state.settings, 'backendTrack', 'java') ?? 'java';
-  const dark = recordValue<boolean>(state.settings, 'darkMode', false) ?? false;
+  const storedDark = recordValue<boolean>(state.settings, 'darkMode');
+  const [systemDark, setSystemDark] = useState(() => typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches === true);
+  const dark = storedDark ?? systemDark;
+  const toggleDark = useCallback(() => storeSetting('darkMode', !dark), [dark, storeSetting]);
   const connected = typeof localStorage !== 'undefined' && isSyncConnected();
 
   useEffect(() => { const handle = () => setRoute(routePath()); window.addEventListener('hashchange', handle); return () => window.removeEventListener('hashchange', handle); }, []);
   useEffect(() => { localStorage.setItem(STATE_KEY, JSON.stringify(state)); }, [state]);
-  useEffect(() => { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; }, [dark]);
+  useEffect(() => {
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#111821' : '#f7f8fa');
+  }, [dark]);
+  useEffect(() => {
+    const query = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (!query) return undefined;
+    const handle = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+    query.addEventListener('change', handle);
+    return () => query.removeEventListener('change', handle);
+  }, []);
   useEffect(() => manager.subscribe(setSyncStatus), [manager]);
   useEffect(() => { if (connected) return manager.start(); return undefined; }, [manager, connected]);
   useEffect(() => { setFocus(focusDefault); }, [focusDefault]);
@@ -90,7 +103,7 @@ export default function App() {
 
   return <div className="app-shell">
     {route === '/' || route === '' ? <main className="home-page">
-      <div className="home-status">{connected && <span className={`sync-dot ${syncStatus.state}`} title={syncStatus.message} aria-label={`Sync ${syncStatus.state}`} />}</div>
+      <div className="home-status">{connected && <span className={`sync-dot ${syncStatus.state}`} title={syncStatus.message} aria-label={`Sync ${syncStatus.state}`} />}<ThemeToggle dark={dark} onToggle={toggleDark} /></div>
       <p className="eyebrow">Citi · Enterprise Risk Technology</p>
       <h1>Full-stack interview prep</h1>
       <p className="home-purpose">A calm, step-by-step plan for your Senior Full-Stack Developer interview.</p>
@@ -102,7 +115,7 @@ export default function App() {
       </details>)}</div>
       <div className="home-progress"><div className="progress-copy"><span>Progress</span><span>{doneCount} of {visibleLessons(compress).length} lessons</span></div><div className="progress-track" role="progressbar" aria-label="Study progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${progress}%` }} /></div></div>
     </main> : <>
-      {!focusMode && <header className="topbar"><Link to="/" className="wordmark">Citi interview prep</Link><nav className={menuOpen && !isLesson && !dayMatch ? 'mobile-nav-open' : ''} aria-label="Main navigation"><Link to="/progress">Progress</Link><Link to="/practice">Practice</Link><Link to="/cheatsheet">Cheat sheet</Link><Link to="/settings">Settings</Link></nav>{!isLesson && !dayMatch && <button className="mobile-menu-button" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>☰ <span className="sr-only">Open site navigation</span></button>}</header>}
+      {!focusMode && <header className="topbar"><Link to="/" className="wordmark">Citi interview prep</Link><nav className={menuOpen && !isLesson && !dayMatch ? 'mobile-nav-open' : ''} aria-label="Main navigation"><Link to="/progress">Progress</Link><Link to="/practice">Practice</Link><Link to="/cheatsheet">Cheat sheet</Link><Link to="/settings">Settings</Link></nav>{!isLesson && !dayMatch && <button className="mobile-menu-button" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>☰ <span className="sr-only">Open site navigation</span></button>}<ThemeToggle dark={dark} onToggle={toggleDark} /></header>}
       <div className={`page-layout ${focusMode ? 'focus-layout' : ''}`}>
         {!focusMode && (isLesson || dayMatch) && <>
           <button className="mobile-menu-button mobile-menu-in-layout" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>☰ Lesson outline</button>
@@ -115,7 +128,7 @@ export default function App() {
           : route === '/progress' ? <ProgressPage state={state} compress={compress} />
           : route === '/cheatsheet' ? <CheatSheetPage state={state} compress={compress} track={track} />
           : route === '/practice' ? <PracticePage state={state} setRecord={setRecord} />
-          : route === '/settings' ? <SettingsPage state={state} setRecord={setRecord} manager={manager} status={syncStatus} />
+          : route === '/settings' ? <SettingsPage state={state} setRecord={setRecord} manager={manager} status={syncStatus} dark={dark} />
           : <NotFound />}
         </main>
       </div>
@@ -185,13 +198,12 @@ function PracticePage({ state, setRecord }: { state: AppState; setRecord: (map: 
   return <section className="standard-page"><p className="eyebrow">Practice tools</p><h1>Practice without a timer</h1><p>No mock interview or live AI calls. Work through a question, run a query, or test a coding pattern.</p><div className="practice-tabs" role="tablist">{(['questions','sql','code'] as const).map(item => <button role="tab" aria-selected={mode === item} className={mode === item ? 'selected' : ''} key={item} onClick={() => setMode(item)}>{item === 'questions' ? 'Reveal questions' : item === 'sql' ? 'SQL playground' : 'Coding runner'}</button>)}</div>{mode === 'questions' ? <div className="question-list">{questions.map(question => <RevealQuestion key={question.id} question={question} grade={recordValue<Grade>(state.grades, question.id)} onGrade={grade => setRecord('grades', question.id, grade)} />)}</div> : mode === 'sql' ? <SqlPlayground /> : <CodingRunner />}</section>;
 }
 
-function SettingsPage({ state, setRecord, manager, status }: { state: AppState; setRecord: (map: RecordMapName, id: string, value: unknown, deleted?: boolean) => void; manager: SyncManager; status: SyncStatus }) {
+function SettingsPage({ state, setRecord, manager, status, dark }: { state: AppState; setRecord: (map: RecordMapName, id: string, value: unknown, deleted?: boolean) => void; manager: SyncManager; status: SyncStatus; dark: boolean }) {
   const [token, setToken] = useState(''); const [gistId, setGistId] = useState(localStorage.getItem(GIST_ID_KEY) ?? '');
   const [message, setMessage] = useState(''); const [qr, setQr] = useState(''); const [busy, setBusy] = useState(false);
   const [importError, setImportError] = useState('');
   const track = recordValue<'java'|'python'>(state.settings, 'backendTrack', 'java') ?? 'java';
   const compress = recordValue<boolean>(state.settings, 'compress', false) ?? false;
-  const dark = recordValue<boolean>(state.settings, 'darkMode', false) ?? false;
   const connected = isSyncConnected();
   useEffect(() => { if (gistId) QRCode.toDataURL(gistId, { margin: 1, width: 150, errorCorrectionLevel: 'M' }).then(setQr).catch(() => setQr('')); else setQr(''); }, [gistId]);
   async function runSync(action: 'create'|'find'|'sync'|'pull'|'push') {
@@ -213,3 +225,7 @@ function SettingsPage({ state, setRecord, manager, status }: { state: AppState; 
     <div className="settings-group"><h2>Export and import fallback</h2><p>Exports never include the GitHub token. Import merges records rather than blindly replacing local progress.</p><div className="tool-actions"><button className="quiet-button" onClick={exportState}>Export JSON</button><label className="quiet-button file-button">Import JSON<input type="file" accept="application/json" onChange={event => void importFile(event.target.files?.[0])} /></label></div>{importError && <p role="alert" className="error-text">{importError}</p>}</div><p className="device-name">This device: <code>{state.deviceId}</code></p></section>;
 }
 function NotFound() { return <section className="standard-page"><h1>Page not found</h1><Link className="primary-button small" to="/">Return home</Link></section>; }
+function ThemeToggle({ dark, onToggle }: { dark: boolean; onToggle: () => void }) {
+  const label = dark ? 'Switch to light mode' : 'Switch to dark mode';
+  return <button type="button" className="theme-toggle" aria-pressed={dark} aria-label={label} title={label} onClick={onToggle}><span aria-hidden="true">{dark ? '☀' : '☾'}</span><span className="sr-only">{label}</span></button>;
+}
