@@ -7,7 +7,7 @@ export type CodingTask = {
   starter: string;
   /** Each test: arguments passed to solve(...args), and the expected return value. */
   tests: [unknown[], unknown][];
-  normalize?: 'groups';
+  normalize?: 'groups' | 'sorted';
   hint: string;
   solution: string;
   complexity: string;
@@ -65,6 +65,21 @@ export const codingTasks: CodingTask[] = [
     tests: [t([[{ user: 'a', type: 'enter' }, { user: 'b', type: 'exit' }, { user: 'a', type: 'exit' }, { user: 'a', type: 'exit' }, { user: 'b', type: 'enter' }, { user: 'b', type: 'enter' }, { user: 'b', type: 'exit' }]], 2), t([[]], 0), t([[{ user: 'a', type: 'enter' }]], 0)],
     hint: 'Track who is currently inside with a Set.', complexity: 'O(n) time, O(u) space',
     solution: 'type Ev = { user: string; type: "enter" | "exit" };\nfunction solve(events: Ev[]): number {\n  const inside = new Set<string>();\n  let done = 0;\n  for (const e of events) {\n    if (e.type === "enter") inside.add(e.user);\n    else if (inside.delete(e.user)) done++;\n  }\n  return done;\n}' },
+  { id: 10, title: 'Intersection of Two Arrays (LeetCode 349)', prompt: 'Return the unique values that appear in both arrays. Order does not matter.',
+    starter: 'function solve(a: number[], b: number[]): number[] {\n  // TODO\n  return [];\n}',
+    tests: [t([[1, 2, 2, 1], [2, 2]], [2]), t([[4, 9, 5], [9, 4, 9, 8, 4]], [4, 9]), t([[1, 2, 3], []], []), t([[7], [7]], [7]), t([[1, 1], [2, 2]], [])], normalize: 'sorted',
+    hint: 'Put one array in a Set for O(1) membership, then filter the other and dedupe the result.', complexity: 'O(n + m) time, O(m) space',
+    solution: 'function solve(a: number[], b: number[]): number[] {\n  const inB = new Set(b);\n  return [...new Set(a)].filter(x => inB.has(x));\n}' },
+  { id: 11, title: 'Longest Consecutive Sequence (LeetCode 128)', prompt: 'Return the length of the longest run of consecutive integers (for example 4, 5, 6 has length 3). Aim for O(n).',
+    starter: 'function solve(nums: number[]): number {\n  // TODO\n  return 0;\n}',
+    tests: [t([[100, 4, 200, 1, 3, 2]], 4), t([[0, 3, 7, 2, 5, 8, 4, 6, 0, 1]], 9), t([[]], 0), t([[5, 5, 5]], 1), t([[1, 2, 0, 1]], 3)],
+    hint: 'Load a Set, then only start counting at a value whose predecessor is missing, so each run is walked once.', complexity: 'O(n) time, O(n) space',
+    solution: 'function solve(nums: number[]): number {\n  const set = new Set(nums);\n  let best = 0;\n  for (const n of set) {\n    if (set.has(n - 1)) continue;\n    let len = 1;\n    while (set.has(n + len)) len++;\n    best = Math.max(best, len);\n  }\n  return best;\n}' },
+  { id: 12, title: 'Reconcile trade ids (set difference)', prompt: 'Given the ids you expected and the ids you received, return { missing, unexpected }, both sorted ascending. "missing" is in expected but not received; "unexpected" is in received but not expected. Duplicates are ignored.',
+    starter: 'function solve(expected: string[], received: string[]): { missing: string[]; unexpected: string[] } {\n  // TODO\n  return { missing: [], unexpected: [] };\n}',
+    tests: [t([['t1', 't2', 't3'], ['t2', 't3', 't9']], { missing: ['t1'], unexpected: ['t9'] }), t([['a'], ['a']], { missing: [], unexpected: [] }), t([[], ['x']], { missing: [], unexpected: ['x'] }), t([['b', 'b'], []], { missing: ['b'], unexpected: [] })],
+    hint: 'Build a Set of each side, then filter each list by absence in the other Set and sort the results.', complexity: 'O(n + m + k log k) time, O(n + m) space',
+    solution: 'function solve(expected: string[], received: string[]) {\n  const exp = new Set(expected); const rec = new Set(received);\n  return {\n    missing: [...exp].filter(x => !rec.has(x)).sort(),\n    unexpected: [...rec].filter(x => !exp.has(x)).sort(),\n  };\n}' },
 ];
 
 /** Strip TypeScript types (no type-checking). */
@@ -73,9 +88,14 @@ export function toJs(source: string): string {
 }
 
 /** Source for a disposable worker: user code + a test harness. The user code is embedded, never eval'd. */
-export function buildWorkerSource(js: string, normalize?: 'groups'): string {
+export function buildWorkerSource(js: string, normalize?: 'groups' | 'sorted'): string {
+  const normalizer = normalize === 'groups'
+    ? '(v) => v.map(g => [...g].sort()).sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : 1)'
+    : normalize === 'sorted'
+      ? '(v) => [...v].sort((a, b) => a < b ? -1 : a > b ? 1 : 0)'
+      : '(v) => v';
   return `${js}
-;const __norm = ${normalize === 'groups' ? '(v) => v.map(g => [...g].sort()).sort((a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : 1)' : '(v) => v'};
+;const __norm = ${normalizer};
 self.onmessage = (e) => {
   try {
     if (typeof solve !== 'function') throw new Error('Define a function named solve.');

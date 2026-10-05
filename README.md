@@ -49,7 +49,7 @@ A fine-grained token with Gists read/write may also work if GitHub offers that p
 
 - Home has a single continue/start action and a collapsed day outline.
 - Lessons are sequential, skippable, and saved locally. Focus mode is on by default.
-- Compress mode removes optional lessons 23–24 and distributes the rest across two days.
+- Compress mode removes optional lessons 24–25 and distributes the rest across two days.
 - `/progress`, `/practice`, `/cheatsheet`, and `/settings` are accessible from the site navigation.
 - SQL exercises use local SQLite WASM. Coding exercises execute in disposable Web Workers with a hard timeout; they run JavaScript (not TypeScript type-checking).
 - Backend choice, completion, skips, grades, notes, and stories are persisted locally and included in Gist sync.

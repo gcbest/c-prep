@@ -11,7 +11,7 @@ export type Question = {
   minutes: number;
   track?: Track;
   source?: Source;
-  /** Only used by lessons split into Part A / Part B (25, 26). */
+  /** Only used by lessons split into Part A / Part B (26, 27). */
   part?: 'A' | 'B';
 };
 

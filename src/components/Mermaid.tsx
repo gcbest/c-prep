@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 
-// Mermaid is large, so it is imported only when a diagram is on screen (lessons 22 and 25).
+// Mermaid is large, so it is imported only when a diagram is on screen (lessons 23 and 26).
 export function Mermaid({ chart, caption }: { chart: string; caption?: string }) {
   const id = `m${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const [svg, setSvg] = useState('');

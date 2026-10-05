@@ -12,7 +12,7 @@ function runHarness(source: string, tests: unknown) {
 }
 
 describe('coding tasks', () => {
-  it('has 9 tasks', () => expect(codingTasks).toHaveLength(9));
+  it('has 12 tasks', () => expect(codingTasks).toHaveLength(12));
   it.each(codingTasks)('reference solution passes hidden tests: $title', task => {
     const out = runHarness(buildWorkerSource(toJs(task.solution), task.normalize), task.tests);
     expect(out.error).toBeUndefined();

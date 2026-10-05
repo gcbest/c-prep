@@ -42,7 +42,7 @@ This is a **docs-style reading site with a few interactive practice tools**, not
 
 Order is chosen so each lesson builds on the last and the highest-yield topics come first. Lesson time totals about 12.5 hours; with about 30 minutes a day for redoing missed questions, the plan is about 14 hours across 3 days.
 
-**Compress mode (2 days):** hides lessons marked optional (23, 24), hides any content wrapped in `<CompressHide>` (e.g., the Saga/outbox and micro-frontend sections of lesson 22), and redistributes the remaining lessons, in the same order, across 2 days by cumulative minutes (about 6 h/day). Nothing else is cut.
+**Compress mode (2 days):** hides lessons marked optional (24, 25), hides any content wrapped in `<CompressHide>` (e.g., the Saga/outbox and micro-frontend sections of lesson 23), and redistributes the remaining lessons, in the same order, across 2 days by cumulative minutes (about 6 h/day). Nothing else is cut.
 
 ### Day 1: SQL, Java, Backend, Angular Start (about 4.5 h)
 
@@ -60,7 +60,7 @@ Order is chosen so each lesson builds on the last and the highest-yield topics c
 | 10 | Angular 1: Components, templates, data binding (via React) | 25 | Start of the front end |
 | 11 | Angular 2: Services, dependency injection, HTTP | 25 | Connects to backend |
 
-### Day 2: Front End, Testing, Coding (about 4.5 h)
+### Day 2: Front End, Testing, Coding (about 5 h)
 
 | # | Lesson | Min | Why here |
 |---:|---|---:|---|
@@ -73,18 +73,19 @@ Order is chosen so each lesson builds on the last and the highest-yield topics c
 | 18 | Coding 1: Hash-map aggregation | 30 | Highest-priority pattern |
 | 19 | Coding 2: String and log parsing | 30 | Second pattern |
 | 20 | Coding 3: Snapshot plus updates (versions, deletes, ordering) | 35 | Third pattern |
+| 21 | Coding 4: Sets and membership | 30 | Dedupe, reconciliation, neighbour lookup |
 
 ### Day 3: Security, Design, Leadership, Review (about 3.75 h)
 
 | # | Lesson | Min | Why here |
 |---:|---|---:|---|
-| 21 | Security: authN vs authZ, JWT/OAuth basics, CORS, CSRF, XSS | 30 | Banking context |
-| 22 | Architecture: microservices, messaging (Kafka concepts), caching | 30 | Senior differentiators |
-| 23 | Delivery: Docker, CI/CD, micro-frontends (optional) | 25 | In the job description |
-| 24 | Working with LLM APIs (brief; optional) | 15 | Quick, user already knows agents; some Citi postings mention AI |
-| 25 | System design: risk-management portal walkthrough (Part A / B) | 45 | Senior design round |
-| 26 | Leadership: four STAR-L stories (Part A / B) | 45 | Likely behavioral focus |
-| 27 | Final cheat sheet, review of misses, day-of checklist | 30 | Last-hour review |
+| 22 | Security: authN vs authZ, JWT/OAuth basics, CORS, CSRF, XSS | 30 | Banking context |
+| 23 | Architecture: microservices, messaging (Kafka concepts), caching | 30 | Senior differentiators |
+| 24 | Delivery: Docker, CI/CD, micro-frontends (optional) | 25 | In the job description |
+| 25 | Working with LLM APIs (brief; optional) | 15 | Quick, user already knows agents; some Citi postings mention AI |
+| 26 | System design: risk-management portal walkthrough (Part A / B) | 45 | Senior design round |
+| 27 | Leadership: four STAR-L stories (Part A / B) | 45 | Likely behavioral focus |
+| 28 | Final cheat sheet, review of misses, day-of checklist | 30 | Last-hour review |
 
 There is no timed mock interview; leftover time is for re-reading weak lessons and redoing missed questions.
 
@@ -111,10 +112,10 @@ A lesson is "weak" if any of its questions is graded Missed or Partial and has n
 ## Interactive Tools (Only These Three)
 
 1. **SQL playground** (`sql.js`/SQLite in the browser): 20 exercises on seeded risk data (`trades`, `accounts`, `risk_limits`, `breaches`, `users`, `orders`). Each: prompt, schema viewer, editor, Run, result diff against expected, three-level hint ladder, model solution. Embedded in lessons 2-4 and available on `/practice`.
-2. **Coding runner:** JS/TS exercises executed in a Web Worker with hidden tests, plus a prompt for time and space complexity. TypeScript is type-stripped in the worker with Sucrase (no type-checking). Enforce the timeout by calling `worker.terminate()` and starting a fresh worker. Used in lessons 18-20.
+2. **Coding runner:** JS/TS exercises executed in a Web Worker with hidden tests, plus a prompt for time and space complexity. TypeScript is type-stripped in the worker with Sucrase (no type-checking). Enforce the timeout by calling `worker.terminate()` and starting a fresh worker. Used in lessons 18-21.
 3. **Reveal-style questions:** question -> answer (typed, or said aloud) -> reveal "strong answer includes" -> self-grade Missed/Partial/Strong. Misses feed `/progress`.
 
-Do **not** build anything else interactive (no chatbot, no live LLM calls from the site, no timed mock interview, no diagram editor, no dashboards, no auto-grading of free text, no speech recognition). Mermaid diagrams are static and read-only in lessons 22 and 25.
+Do **not** build anything else interactive (no chatbot, no live LLM calls from the site, no timed mock interview, no diagram editor, no dashboards, no auto-grading of free text, no speech recognition). Mermaid diagrams are static and read-only in lessons 23 and 26.
 
 ---
 
@@ -143,19 +144,20 @@ Forced-choice scenarios: type-ahead -> `switchMap`; prevent double submit -> `ex
 - Java-side vocabulary (lesson 17, Java track): JUnit 5, Mockito (`@Mock`, `when`, `verify`), and what `@WebMvcTest`, `@DataJpaTest`, and `@SpringBootTest` each load.
 - **Debug-a-failing-test lab:** a small multi-file codebase (e.g., a `TradeReconciler` that dedupes by symbol only) with a failing test. In the browser it is a **read-only multi-file viewer** with step-by-step reveals (no JVM in the browser). Optionally ship `labs/java-debug` (Maven) and `labs/python-debug` (pytest) in the repo so the user can run them locally. Teach the loop (read test -> reproduce -> inspect -> minimal fix -> rerun -> explain) across six bug types (broken `equals/hashCode`, float vs `BigDecimal` formatting, off-by-one, shared mutable state, null/empty handling, wrong comparator).
 
-### Coding (Lessons 18-20, three patterns only)
+### Coding (Lessons 18-21, four patterns only)
 1. Hash-map aggregation: Group Anagrams (LeetCode 49), Top K Frequent Elements (347), Contains Duplicate (217).
 2. String/log parsing: Reorder Data in Log Files (937), Validate IP Address (468).
 3. Snapshot plus updates: Stock Price Fluctuation (2034), Simple Bank System (2043), Time Based Key-Value Store (981).
+4. Sets and membership: Intersection of Two Arrays (349), Longest Consecutive Sequence (128), plus a set-difference reconciliation over trade ids.
 
 Capstone: process `RiskEvent` upserts/deletes with `version` and `sequence`, keep the newest per id, total by category, ignore stale updates, detect sequence gaps. Also a journey-counting variant (count completed enter->exit pairs, ignore orphans). Teach the routine: restate -> clarify -> example -> edge cases -> approach -> complexity -> code -> test. Advise: in a Karat-style screen, use whichever language you are fastest in (usually allowed), and think aloud.
 
-### Security, Architecture, Delivery (Lessons 21-23)
+### Security, Architecture, Delivery (Lessons 22-24)
 - Security: authN vs authZ; sessions vs JWT; OAuth2/OIDC concepts; CORS misconceptions; CSRF; XSS and CSP; clickjacking; **the server enforces entitlements, hiding UI is not security**; audit logging; PII in logs.
 - Architecture: microservices vs modular monolith; REST vs messaging; Kafka concepts (partitions, ordering, consumer groups, at-least-once, idempotent consumers); cache-aside and invalidation; timeouts, retries, circuit breakers, idempotency keys; correlation IDs. In `<CompressHide>`: Saga/outbox concepts, micro-frontend trade-offs.
 - Delivery (optional): PR checks -> CI -> multi-stage Docker build -> scans -> immutable artifact -> promotion -> smoke tests -> approvals -> rollback.
 
-### Working with LLM APIs (Lesson 24, brief, 15 minutes, optional)
+### Working with LLM APIs (Lesson 25, brief, 15 minutes, optional)
 Purpose: be able to discuss LLM integration credibly in a regulated bank. Some Citi Python/risk postings mention AI agent platforms, so a short, practical lesson is worthwhile; label this "job-posting-reported," not a guaranteed interview topic. The candidate already builds AI agents, so keep it concise and lead with the enterprise framing rather than basics.
 
 Cover, one short section each:
@@ -169,13 +171,13 @@ Cover, one short section each:
 
 Practice: three reveal questions (e.g., "Where should the API key live and why?", "How do you stop a prompt-injected document from triggering a tool call?", "How would you test a feature whose output is non-deterministic?") and one "Say it out loud" prompt: *"Design an AI assistant that summarizes risk-limit breaches for a risk manager."* Strong answers mention entitlement-filtered retrieval, server-side calls, schema validation, audit logging, evaluation sets, and human review. No live LLM calls from the study site itself.
 
-### System Design (Lesson 25)
-Risk-management portal walkthrough with a suggested 45-minute phase guide (requirements 5 / NFRs 5 / architecture 10 / front end + API + data 10 / security + resilience 7 / delivery + observability 5 / trade-offs 3), shown as reading guidance, not a timer. Part A: requirements through architecture; Part B: the rest. Risk-UX rules: "as of" timestamps; zero vs no data; stale/partial markers; precision and rounding; drill-down lineage; server-side entitlements. Add one optional "Go deeper" note on where an LLM summary feature would fit (see lesson 24).
+### System Design (Lesson 26)
+Risk-management portal walkthrough with a suggested 45-minute phase guide (requirements 5 / NFRs 5 / architecture 10 / front end + API + data 10 / security + resilience 7 / delivery + observability 5 / trade-offs 3), shown as reading guidance, not a timer. Part A: requirements through architecture; Part B: the rest. Risk-UX rules: "as of" timestamps; zero vs no data; stale/partial markers; precision and rounding; drill-down lineage; server-side entitlements. Add one optional "Go deeper" note on where an LLM summary feature would fit (see lesson 25).
 
-### Leadership (Lesson 26)
+### Leadership (Lesson 27)
 Four stories (production incident, technical disagreement, mentoring/raising quality, stopping a risky release or raising a security concern) in a simple Situation / Ownership / Actions / Result / Learning form with a short quality checklist. Part A: stories 1-2; Part B: stories 3-4, a "Why Citi ERT?" answer, and a short list of questions to ask the interviewers. Stories sync through the Gist, so remind the user not to include confidential employer details.
 
-### Final Review (Lesson 27)
+### Final Review (Lesson 28)
 Links to `/cheatsheet` and the "Review these" list, then a short **day-of checklist**: confirm the interview format and language choice; set up a quiet room and a working editor; restate and clarify before coding; think aloud; test with an example before saying "done"; have your stories and questions within reach.
 
 ---
@@ -190,7 +192,7 @@ Use this only as light framing in "Why this matters," never as guaranteed questi
 
 - Vite + React 18 + TypeScript (strict), **MDX** for lesson content via `@mdx-js/rollup` with `remark-frontmatter` + `remark-mdx-frontmatter` (one file per lesson, frontmatter: `number`, `title`, `minutes`, `day`, `optional`, `track` (`both`/`java`/`python`)), React Router **`HashRouter`**.
 - Plain CSS or Tailwind; a small component set: `Callout`, `Bridge`, `Reveal`, `Collapsible`, `Quiz`, `SqlExercise`, `CodeExercise`, `CheatSheet`, `CompressHide`, `FileViewer` (debug lab).
-- Shiki at **build time** via `@shikijs/rehype` (no runtime highlighter). Mermaid lazy-loaded only on lessons 22 and 25.
+- Shiki at **build time** via `@shikijs/rehype` (no runtime highlighter). Mermaid lazy-loaded only on lessons 23 and 26.
 - `sql.js` for SQL; Web Worker + Sucrase for JS/TS exercises.
 - Questions live in a per-lesson data file next to each MDX file (e.g., `content/lessons/07-backend-di.questions.ts`).
 - State in `localStorage` (versioned): current lesson, completed, skipped, self-grades, notes, stories, settings.
@@ -293,7 +295,7 @@ Progress must stay identical on desktop and phone with no custom backend. The sy
 
 - **No offline/PWA support:** no service worker, manifest, or install prompt. The site needs a connection to load; progress is still saved locally and synced when reachable.
 - **No timed mock interview:** no mock route, timer, or rubric screens. Practice comes from reveal questions, the SQL playground, the code runner, and untimed "Say it out loud" prompts.
-- **No live LLM calls from the study site:** lesson 24 is reading and reveal questions only.
+- **No live LLM calls from the study site:** lesson 25 is reading and reveal questions only.
 
 ---
 
@@ -307,19 +309,19 @@ The candidate starts studying as soon as Day 1 content exists, so content for th
 4. Lessons 5-9 (Java essentials, backend) with reveal questions; Java content first, Python variant second.
 5. Lessons 10-14 (Angular, RxJS).
 6. Lessons 15-17 (testing and debug lab).
-7. Lessons 18-20 (coding runner).
-8. Lessons 21-23, 25, 26 (security, architecture, delivery, system design, leadership).
-9. Lesson 27 (cheat sheet, review of misses, day-of checklist).
-10. Lesson 24 (LLM APIs, brief) if time allows.
+7. Lessons 18-21 (coding runner).
+8. Lessons 22-24, 26, 27 (security, architecture, delivery, system design, leadership).
+9. Lesson 28 (cheat sheet, review of misses, day-of checklist).
+10. Lesson 25 (LLM APIs, brief) if time allows.
 11. Accessibility pass, phone layout check, README.
 
-If time runs short, cut polish first, then Python-track content, then optional lessons (24, then 23). Never cut SQL, Java essentials, backend, Angular/RxJS, testing, coding, security, system design, leadership, deployment, or sync.
+If time runs short, cut polish first, then Python-track content, then optional lessons (25, then 24). Never cut SQL, Java essentials, backend, Angular/RxJS, testing, coding, security, system design, leadership, deployment, or sync.
 
 ---
 
 ## Question Bank (Used by Practice Items)
 
-79 reveal-style questions spread across lessons: SQL 12, Java essentials 4, backend 14, Angular/TS 10, RxJS 6, testing/debug 8, security 6, architecture 6, LLM APIs 3, coding 4, leadership 6. Schema:
+81 reveal-style questions spread across lessons: SQL 12, Java essentials 4, backend 14, Angular/TS 10, RxJS 6, testing/debug 8, security 6, architecture 6, LLM APIs 3, coding 6, leadership 6. Schema:
 
 ```ts
 type Question = {
@@ -335,7 +337,7 @@ type Question = {
 };
 ```
 
-Missed/Partial grades add the question to the `/progress` "Review these" list, re-surfaced in lesson 27.
+Missed/Partial grades add the question to the `/progress` "Review these" list, re-surfaced in lesson 28.
 
 ---
 
@@ -365,10 +367,10 @@ Semantic landmarks, keyboard navigation, visible focus, labeled controls, no col
 ## Acceptance Criteria
 
 - Home shows only the title, one sentence, one primary button, a collapsed 3-day outline, and a progress bar; nothing else.
-- Lessons follow the numbered path (27 lessons); every lesson uses the template, takes about 15-35 minutes (lessons 25 and 26 are 45 minutes, split into Part A/B), and ends with one Next button; deep content is collapsed by default; answers are hidden until revealed.
+- Lessons follow the numbered path (28 lessons); every lesson uses the template, takes about 15-35 minutes (lessons 26 and 27 are 45 minutes, split into Part A/B), and ends with one Next button; deep content is collapsed by default; answers are hidden until revealed.
 - Lesson 5 (Java essentials) exists on both tracks and prepares the user to read a JUnit test and answer the seeded Java trivia.
-- Lesson 24 (LLM APIs) exists, is marked optional, takes about 15 minutes, and covers server-side keys, structured output validation, tool use, retrieval with entitlements, bank-grade concerns, and UI patterns.
-- Skipping works and never blocks later lessons; compress mode hides lessons 23 and 24 and `<CompressHide>` content, and redistributes the rest across 2 days in order.
+- Lesson 25 (LLM APIs) exists, is marked optional, takes about 15 minutes, and covers server-side keys, structured output validation, tool use, retrieval with entitlements, bank-grade concerns, and UI patterns.
+- Skipping works and never blocks later lessons; compress mode hides lessons 24 and 25 and `<CompressHide>` content, and redistributes the rest across 2 days in order.
 - SQL exercises run and auto-check in the browser; JS/TS exercises run in a worker with hidden tests and a hard timeout; missed questions appear on `/progress`; `/cheatsheet` prints the collected `<CheatSheet>` blocks, weak lessons first.
 - Backend track switch swaps lesson bodies 6-9 and 17 without changing numbering.
 - Deploys to GitHub Pages at a `/<repo>/` path, including SQL WASM, deep links, and refresh, with the CSP meta tag in place.

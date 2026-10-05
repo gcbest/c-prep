@@ -1,0 +1,84 @@
+---
+number: 21
+title: "Coding 4: Sets and membership"
+minutes: 30
+day: 2
+---
+
+## Why this matters
+
+Citi screens include coding and event/log problems (candidate-reported), and the same work shows up in a risk platform: dedupe a batch, reconcile two lists, or answer "have I seen this key". A `Set` is the smallest tool for all of those, and it is easy to reach for a `Map` or a nested loop when a `Set` would do.
+
+## Core idea
+
+**A Set is a Map without values.** It stores unique keys with average O(1) `add`, `has` and `delete`, and costs O(n) space. Reach for it when you only need existence or uniqueness; reach for a `Map` when you need a count or a value attached to the key.
+
+The routine is the same as Coding 1: **restate, clarify, example, edge cases, approach, complexity, code, test.** Two moves cover most Set problems:
+
+- **Membership and dedupe:** `new Set(xs)` drops duplicates; `seen.has(x)` answers "have I seen this before". Great for duplicate detection and for filtering one list against another.
+- **Neighbour lookup:** load every value into a Set, then for each value ask whether `x - 1` or `x + 1` is present. This turns scans that look quadratic into O(n).
+
+Set algebra is just these primitives: **union** (`new Set([...a, ...b])`), **intersection** (`[...a].filter(x => b.has(x))`) and **difference** (`[...a].filter(x => !b.has(x))`).
+
+<Bridge from="Python / Java" breaks="Java HashSet boxes primitives and has no set operators; use HashSet plus retainAll/removeAll. JS Set has no set operators either, so write the filter.">
+TS `Set` is Python `set` and Java `HashSet`: O(1) average membership, no duplicates, no ordering you should rely on for correctness (JS keeps insertion order, but do not build logic on it).
+</Bridge>
+
+## Example
+
+Duplicate detection, intersection, and the O(n) longest-consecutive run:
+
+```ts
+const hasDuplicate = (xs: number[]) => new Set(xs).size !== xs.length;
+
+function intersection(a: number[], b: number[]): number[] {
+  const inB = new Set(b);
+  return [...new Set(a)].filter((x) => inB.has(x));
+}
+
+function longestConsecutive(nums: number[]): number {
+  const set = new Set(nums);              // dedupe once, membership is O(1)
+  let best = 0;
+  for (const n of set) {
+    if (set.has(n - 1)) continue;         // only start at the first value of a run
+    let length = 1;
+    while (set.has(n + length)) length++; // each value is expanded at most once
+    best = Math.max(best, length);
+  }
+  return best;
+}
+```
+
+Complexity: duplicates O(n) time, O(n) space. Intersection O(n + m) time, O(m) space. Longest consecutive O(n) time, O(n) space. Reconciliation is the same shape: `missing = [...expected].filter(x => !seen.has(x))`, and the reverse for `unexpected`.
+
+## Practice
+
+Read the prompts: one task asks for a specific output shape and ordering.
+
+<CodeExercise ids={[10, 11, 12]} />
+
+<Practice />
+
+<SayItOut prompt="How do you find the longest run of consecutive integers in O(n), and why is sorting the wrong answer?">
+- Put every value in a Set so membership is O(1).
+- Only start counting from a value with no `n - 1` in the set, so each value is expanded at most once.
+- Sorting is O(n log n) and mutates or copies the input; the Set scan is O(n) time and O(n) space.
+- The Set also absorbs duplicates; test empty input and a single value.
+</SayItOut>
+
+<Collapsible>
+- **Set vs Map:** if you need counts or attached data, use a `Map` (`get(x) ?? 0`); a `Set` only answers yes/no.
+- **Reference, not value:** `new Set([{...}, {...}])` dedupes by identity, so two equal records both stay. Use a canonical key (an id, or `JSON.stringify`) as a `Map` key instead.
+- **Bounded alphabets:** for a small fixed range (26 letters, ASCII) a boolean array or bitmask is faster and lighter than a Set.
+- **At scale:** an in-memory Set only dedupes within one process and is lost on restart. For durable idempotency, key by event id and persist it (unique index or upsert in the same transaction).
+</Collapsible>
+
+<CheatSheet>
+
+- Set = Map without values: average O(1) `add`/`has`/`delete`, no duplicates, O(n) space.
+- Dedupe with `new Set(xs)`; dedupe and keep order with `[...new Set(xs)]`.
+- Filter one list against another: build a Set, then `filter(x => set.has(x))`.
+- Neighbour lookups: load a Set, then test `x - 1` / `x + 1`; start consecutive runs only at a run's first value for O(n).
+- Sets compare by reference, not value; for records use a canonical key as a Map key.
+
+</CheatSheet>
