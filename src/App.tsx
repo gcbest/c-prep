@@ -123,7 +123,7 @@ export default function App() {
           <aside className={`lesson-sidebar ${menuOpen ? 'drawer-open' : ''}`} aria-label="Lesson outline">{[1, 2, ...(compress ? [] : [3])].map(day => <details key={day} open={day === currentDay}><summary>Day {day}<span className="sidebar-time">{dayTimes[day]}</span></summary><ol>{visibleLessons(compress).filter(lesson => getLessonDay(lesson, compress) === day).map(lesson => <li key={lesson.number}><Link className={currentLesson?.number === lesson.number ? 'active' : ''} to={`/lesson/${lesson.number}`}><span className="lesson-number">{lesson.number}</span><span>{lesson.title}</span>{recordValue(state.completed, String(lesson.number), false) && <span aria-label="Complete">✓</span>}</Link></li>)}</ol></details>)}</aside>
         </>}
         <main className={`main-content ${focusMode ? 'focus-content' : ''}`}>
-          {isLesson && currentLesson ? <LessonPage lesson={currentLesson} track={track} state={state} focus={focus} setFocus={setFocus} setRecord={setRecord} storeSetting={storeSetting} completeLesson={completeLesson} compress={compress} syncStatus={syncStatus} />
+          {isLesson && currentLesson ? <LessonPage lesson={currentLesson} track={track} state={state} focus={focus} setFocus={setFocus} setRecord={setRecord} storeSetting={storeSetting} completeLesson={completeLesson} compress={compress} syncStatus={syncStatus} dark={dark} toggleDark={toggleDark} />
           : dayMatch ? <DayPage day={currentDay} state={state} compress={compress} />
           : route === '/progress' ? <ProgressPage state={state} compress={compress} />
           : route === '/cheatsheet' ? <CheatSheetPage state={state} compress={compress} track={track} />
@@ -137,11 +137,11 @@ export default function App() {
   </div>;
 }
 
-function LessonPage({ lesson, state, focus, setFocus, setRecord, storeSetting, completeLesson, compress, syncStatus, track }: {
+function LessonPage({ lesson, state, focus, setFocus, setRecord, storeSetting, completeLesson, compress, syncStatus, track, dark, toggleDark }: {
   lesson: Lesson; state: AppState; focus: boolean; setFocus: (value: boolean) => void;
   setRecord: (map: RecordMapName, id: string, value: unknown, deleted?: boolean) => void;
   storeSetting: (key: string, value: unknown) => void; completeLesson: (lesson: Lesson, skipped?: boolean) => void;
-  compress: boolean; syncStatus: SyncStatus; track: 'java' | 'python';
+  compress: boolean; syncStatus: SyncStatus; track: 'java' | 'python'; dark: boolean; toggleDark: () => void;
 }) {
   const done = Boolean(recordValue<boolean>(state.completed, String(lesson.number), false));
   const skipped = Boolean(recordValue<boolean>(state.skipped, String(lesson.number), false));
@@ -162,7 +162,7 @@ function LessonPage({ lesson, state, focus, setFocus, setRecord, storeSetting, c
   const day = getLessonDay(lesson, compress);
   return <article className="lesson-article">
     <div className="lesson-progress-strip"><span style={{ width: `${Math.round(lesson.number / lessons.length * 100)}%` }} /></div>
-    <div className="lesson-toolbar"><Link to={previous ? `/lesson/${previous.number}` : `/day/${day}`} className="back-link">← Back</Link><span className="lesson-count">Lesson {lesson.number} of {lessons.length}</span><button className="focus-toggle" aria-pressed={focus} onClick={() => { setFocus(!focus); storeSetting('focusMode', !focus); }}>{focus ? 'Exit focus mode' : 'Focus mode'}</button>{focus && syncStatus.state === 'synced' && <span className="sr-only">Synced</span>}</div>
+    <div className="lesson-toolbar"><Link to={previous ? `/lesson/${previous.number}` : `/day/${day}`} className="back-link">← Back</Link><span className="lesson-count">Lesson {lesson.number} of {lessons.length}</span><button className="focus-toggle" aria-pressed={focus} onClick={() => { setFocus(!focus); storeSetting('focusMode', !focus); }}>{focus ? 'Exit focus mode' : 'Focus mode'}</button>{focus && <ThemeToggle dark={dark} onToggle={toggleDark} />}{focus && syncStatus.state === 'synced' && <span className="sr-only">Synced</span>}</div>
     <p className="eyebrow">Day {day} · {formatMinutes(lesson.minutes)}{lesson.optional ? ' · Optional' : ''}</p>
     <h1>{lesson.title}</h1>
     <LessonContext.Provider value={context}>
