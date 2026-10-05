@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import initSqlJs, { type SqlJsStatic } from 'sql.js';
+// Vite fingerprints and serves this asset (respecting `base`); sql.js's browser
+// build looks for `sql-wasm-browser.wasm`, so we resolve it explicitly instead
+// of relying on a matching name in `public/`.
+import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { checkResult, exercises, schemaText, seed, type SqlResult } from './sql';
 import { buildWorkerSource, codingTasks, toJs } from './coding';
 
 let sqlPromise: Promise<SqlJsStatic> | undefined;
-const loadSql = () => (sqlPromise ??= initSqlJs({ locateFile: file => `${import.meta.env.BASE_URL}${file}` }));
+const loadSql = () => (sqlPromise ??= initSqlJs({ locateFile: () => sqlWasmUrl }));
 
 function freshRun(SQL: SqlJsStatic, query: string): SqlResult | undefined {
   const db = new SQL.Database(); // fresh seeded database per run, so DROP/UPDATE never poisons later runs
